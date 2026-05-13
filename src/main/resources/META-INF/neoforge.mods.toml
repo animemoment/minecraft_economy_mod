@@ -1,0 +1,16 @@
+modLoader = "javafml"
+loaderVersion = "[1,)"
+license = "All Rights Reserved"
+
+[[mods]]
+modId = "economymod"
+version = "1.0.0"
+displayName = "Economy Mod"
+description = "Full economy simulation with traders and currency"
+
+[[dependencies.economymod]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1,)"
+ordering = "NONE"
+side = "BOTH"
