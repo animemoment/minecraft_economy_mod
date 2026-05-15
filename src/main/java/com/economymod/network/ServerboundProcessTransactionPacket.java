@@ -37,54 +37,75 @@ public record ServerboundProcessTransactionPacket() implements CustomPacketPaylo
             var player = menu.getPlayerActor();
             if (owner == null || player == null) return;
 
+            ServerLevel level = sp.serverLevel();
+            BlockPos pos = owner.getPosition();
+
+            // Получаем данные деревни
+            VillageNetworkData data = VillageNetworkData.get(level);
+            VillageNetworkData.VillageInfo info = (pos != null) ? data.getVillageInfo(pos) : null;
+
             SimpleContainer buyContainer = menu.buyContainer;
             SimpleContainer sellContainer = menu.sellContainer;
 
-            // === ПОКУПКА ===
+            // === ПОКУПКА (Игрок покупает у жителя) ===
             for (int i = 0; i < 9; i++) {
                 ItemStack stack = buyContainer.getItem(i);
                 if (!stack.isEmpty()) {
-                    long pricePerItem = PriceCalculator.getBuyPrice(stack, null);
+                    long pricePerItem = PriceCalculator.getBuyPrice(stack, info);
                     int amount = stack.getCount();
                     long totalCost = pricePerItem * (long) amount;
 
                     if (player.getBalance() < totalCost) continue;
                     if (!TransactionService.canRemoveItems(owner, stack, amount)) continue;
+
                     TransactionService.removeItems(owner, stack.copy(), amount);
                     if (!TransactionService.canAddItems(player, stack, amount)) {
                         TransactionService.addItems(owner, stack.copy(), amount);
                         continue;
                     }
+
                     buyContainer.setItem(i, ItemStack.EMPTY);
                     if (!TransactionService.addItemsSafe(player, stack.copy(), amount)) {
                         TransactionService.addItems(owner, stack.copy(), amount);
                         buyContainer.setItem(i, stack);
                         continue;
                     }
+
                     player.setBalance(player.getBalance() - totalCost);
                     owner.setBalance(owner.getBalance() + totalCost);
+
+                    // ЭКОНОМИКА: Записываем сделку
+                    if (info != null) info.recordTrade(stack.getItem(), amount);
                 }
             }
 
-            // === ПРОДАЖА ===
+            // === ПРОДАЖА (Игрок продает жителю) ===
             for (int i = 0; i < 9; i++) {
                 ItemStack stack = sellContainer.getItem(i);
                 if (!stack.isEmpty()) {
-                    long pricePerItem = PriceCalculator.getSellPrice(stack, null);
+                    long pricePerItem = PriceCalculator.getSellPrice(stack, info);
                     int amount = stack.getCount();
                     long totalPrice = pricePerItem * (long) amount;
 
                     if (owner.getBalance() < totalPrice) continue;
                     if (!TransactionService.canAddItems(owner, stack, amount)) continue;
+
                     sellContainer.setItem(i, ItemStack.EMPTY);
                     if (!TransactionService.addItemsSafe(owner, stack.copy(), amount)) {
                         sellContainer.setItem(i, stack);
                         continue;
                     }
+
                     owner.setBalance(owner.getBalance() - totalPrice);
                     player.setBalance(player.getBalance() + totalPrice);
+
+                    // ЭКОНОМИКА: Записываем сделку
+                    if (info != null) info.recordTrade(stack.getItem(), amount);
                 }
             }
+
+            // Помечаем данные как измененные для сохранения
+            data.setDirty();
 
             // === СИНХРОНИЗАЦИЯ КОРЗИН ===
             List<ItemStack> buyItems = new ArrayList<>();
@@ -96,35 +117,27 @@ public record ServerboundProcessTransactionPacket() implements CustomPacketPaylo
             PacketDistributor.sendToPlayer(sp, new ClientboundSellContainerSyncPacket(sellItems));
 
             // === ПЕРЕСЧЁТ ДИНАМИЧЕСКИХ ЦЕН ===
-            BlockPos pos = owner.getPosition();
-            if (pos != null && sp.serverLevel() != null) {
-                VillageNetworkData data = VillageNetworkData.get(sp.serverLevel());
-                VillageNetworkData.VillageInfo info = data.getVillageInfo(pos);
-                if (info != null) {
-                    info.recalcFactors(sp.serverLevel());
+            if (info != null) {
+                info.recalcFactors(level);
 
-                    Map<Integer, Long> newPrices = new HashMap<>();
-                    for (int i = 0; i < 36; i++) {
-                        ItemStack stack = owner.getInventory().getItem(i);
-                        if (!stack.isEmpty()) {
-                            long price = PriceCalculator.calculateDynamicPrice(stack, info);
-                            newPrices.put(i, price);
-                        }
+                Map<Integer, Long> newPrices = new HashMap<>();
+                for (int i = 0; i < 36; i++) {
+                    ItemStack stack = owner.getInventory().getItem(i);
+                    if (!stack.isEmpty()) {
+                        long price = PriceCalculator.calculateDynamicPrice(stack, info);
+                        newPrices.put(i, price);
                     }
-                    ClientboundPriceUpdatePacket pricePacket = new ClientboundPriceUpdatePacket(newPrices);
-                    PacketDistributor.sendToPlayer(sp, pricePacket);
-                    EconomyMod.LOGGER.info("Dynamic prices updated after transaction: {}", newPrices);
                 }
+                PacketDistributor.sendToPlayer(sp, new ClientboundPriceUpdatePacket(newPrices));
+                EconomyMod.LOGGER.info("Dynamic prices updated after transaction at {}", pos);
             }
 
             // === ФИНАЛЬНАЯ СИНХРОНИЗАЦИЯ ===
-            long playerBal = player.getBalance();
-            long ownerBal = owner.getBalance();
-            PacketDistributor.sendToPlayer(sp, new ClientboundBalanceSyncPacket(playerBal, ownerBal));
+            PacketDistributor.sendToPlayer(sp, new ClientboundBalanceSyncPacket(player.getBalance(), owner.getBalance()));
 
             List<ItemStack> items = new ArrayList<>();
             for (int j = 0; j < 36; j++) items.add(owner.getInventory().getItem(j).copy());
-            PacketDistributor.sendToPlayer(sp, new ClientboundOwnerInventorySyncPacket(items, ownerBal));
+            PacketDistributor.sendToPlayer(sp, new ClientboundOwnerInventorySyncPacket(items, owner.getBalance()));
         });
     }
 }

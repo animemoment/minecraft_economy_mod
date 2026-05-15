@@ -220,6 +220,10 @@ public class EconomyTradeScreen extends AbstractContainerScreen<EconomyTradeMenu
         transactionFailed = false;
     }
 
+    public void refreshData() {
+        this.init(this.minecraft, this.width, this.height);
+    }
+
     public void onTransactionFailed() {
         transactionFailed = true;
         failedAnimationTick = 20;

@@ -1,6 +1,5 @@
 package com.economymod.world;
 
-import com.economymod.attachment.VillagerAttachment;
 import com.economymod.registry.ModAttachments;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -25,16 +24,13 @@ public class VillageNetworkData extends SavedData {
 
     public static VillageNetworkData get(ServerLevel level) {
         return level.getDataStorage().computeIfAbsent(
-                new SavedData.Factory<>(
-                        VillageNetworkData::new,
-                        VillageNetworkData::load
-                ),
+                new SavedData.Factory<>(VillageNetworkData::new, VillageNetworkData::load),
                 DATA_NAME
         );
     }
 
     public VillageInfo getVillageInfo(BlockPos pos) {
-        return villages.computeIfAbsent(pos, k -> new VillageInfo(k));
+        return villages.computeIfAbsent(pos, VillageInfo::new);
     }
 
     public Collection<VillageInfo> getAllVillages() {
@@ -45,144 +41,97 @@ public class VillageNetworkData extends SavedData {
         return villages.keySet();
     }
 
-    // ==================== VillageInfo ====================
     public static class VillageInfo {
         private final BlockPos center;
         private final Map<Item, Double> demandFactors = new HashMap<>();
         private final Map<Item, Double> supplyFactors = new HashMap<>();
-        private final Map<Item, Double> averageDesires = new HashMap<>();
+        private final Map<Item, Integer> dailyTradeVolume = new HashMap<>();
         private double inflationRate = 1.0;
         private long lastRecalcTick = -200L;
 
-        public VillageInfo(BlockPos center) {
-            this.center = center;
+        public VillageInfo(BlockPos center) { this.center = center; }
+        public BlockPos getCenter() { return center; }
+
+        // Геттеры для WorldEconomySavedData (Шаг 4)
+        public Set<Item> getActiveItems() {
+            Set<Item> items = new HashSet<>();
+            items.addAll(demandFactors.keySet());
+            items.addAll(supplyFactors.keySet());
+            return items;
         }
 
-        public BlockPos getCenter() {
-            return center;
-        }
-
-        public double getDemandFactor(Item item) {
-            return demandFactors.getOrDefault(item, 1.0);
-        }
-
-        public double getSupplyFactor(Item item) {
-            return supplyFactors.getOrDefault(item, 1.0);
-        }
-
-        public double getSupplyDemandFactor(Item item) {
-            double demand = getDemandFactor(item);
-            double supply = getSupplyFactor(item);
-            if (supply < 1.0) supply = 1.0;
-            double factor = demand / supply;
-            if (factor < 0.1) factor = 0.1;
-            if (factor > 5.0) factor = 5.0;
-            return factor;
-        }
-
-        public double getAverageDesire(Item item) {
-            return averageDesires.getOrDefault(item, 0.0);
+        public void recordTrade(Item item, int amount) {
+            dailyTradeVolume.merge(item, amount, Integer::sum);
         }
 
         public double getInflationRate() { return inflationRate; }
-        public void setInflationRate(double rate) { this.inflationRate = Math.max(0.1, Math.min(10.0, rate)); }
+        public void setInflationRate(double rate) { this.inflationRate = Math.clamp(rate, 0.1, 10.0); }
 
-        /**
-         * Используется караваном для быстрого обновления после массовой торговли.
-         */
-        public void recalcFactors(Map<Item, Integer> totalDemand, Map<Item, Integer> totalSupply, int population) {
-            demandFactors.clear();
-            supplyFactors.clear();
-            double popFactor = population * 10.0 + 1;
-            for (Map.Entry<Item, Integer> entry : totalDemand.entrySet()) {
-                Item item = entry.getKey();
-                int dem = entry.getValue();
-                demandFactors.put(item, Math.min(2.0, Math.max(0.5, 1.0 + (double) dem / popFactor)));
-            }
-            for (Map.Entry<Item, Integer> entry : totalSupply.entrySet()) {
-                Item item = entry.getKey();
-                int sup = entry.getValue();
-                supplyFactors.put(item, Math.min(2.0, Math.max(0.5, 1.0 - (double) sup / popFactor)));
-            }
+        public double getSupplyDemandFactor(Item item) {
+            double demand = demandFactors.getOrDefault(item, 1.0);
+            double supply = supplyFactors.getOrDefault(item, 1.0);
+            return Math.clamp(demand / Math.max(0.1, supply), 0.1, 5.0);
         }
 
-        /**
-         * Универсальный пересчёт на основе жителей в радиусе 64 блоков от центра.
-         */
+        // ОПТИМИЗИРОВАНО: Плавная логарифмическая математика
+        public void recalcFactors(Map<Item, Integer> totalDemand, Map<Item, Integer> totalSupply, int population) {
+            double popBase = Math.max(1.0, population * 5.0);
+            demandFactors.clear();
+            supplyFactors.clear();
+
+            totalDemand.forEach((item, dem) -> {
+                double factor = 1.0 + Math.log10(1.0 + (double) dem / popBase);
+                demandFactors.put(item, Math.clamp(factor, 0.5, 3.0));
+            });
+
+            totalSupply.forEach((item, sup) -> {
+                double factor = 1.0 - (Math.log10(1.0 + (double) sup / popBase) * 0.5);
+                supplyFactors.put(item, Math.clamp(factor, 0.2, 1.0));
+            });
+        }
+
         public void recalcFactors(Level level) {
-            long gameTime = level.getGameTime();
-            if (gameTime - lastRecalcTick < 200) return;
-            lastRecalcTick = gameTime;
-
-            List<Villager> villagers = level.getEntitiesOfClass(
-                    Villager.class,
-                    new AABB(center).inflate(64.0)
-            );
-
+            if (level.getGameTime() - lastRecalcTick < 200) return;
+            lastRecalcTick = level.getGameTime();
+            List<Villager> villagers = level.getEntitiesOfClass(Villager.class, new AABB(center).inflate(64.0));
             if (villagers.isEmpty()) return;
 
             Map<Item, Integer> totalDemand = new HashMap<>();
             Map<Item, Integer> totalSupply = new HashMap<>();
-            int population = villagers.size();
-
-            for (Villager villager : villagers) {
-                var attachment = villager.getData(ModAttachments.VILLAGER.get());
-                if (attachment == null) continue;
-
-                for (var demand : attachment.getDemands()) {
-                    Item item = demand.stack.getItem();
-                    totalDemand.merge(item, demand.stack.getCount(), Integer::sum);
-                }
-                for (var offer : attachment.getOffers()) {
-                    Item item = offer.stack.getItem();
-                    totalSupply.merge(item, offer.stack.getCount(), Integer::sum);
-                }
+            for (Villager v : villagers) {
+                var att = v.getData(ModAttachments.VILLAGER.get());
+                if (att == null) continue;
+                att.getDemands().forEach(d -> totalDemand.merge(d.stack.getItem(), d.stack.getCount(), Integer::sum));
+                att.getOffers().forEach(o -> totalSupply.merge(o.stack.getItem(), o.stack.getCount(), Integer::sum));
             }
-
-            recalcFactors(totalDemand, totalSupply, population);
+            recalcFactors(totalDemand, totalSupply, villagers.size());
         }
 
-        // Сериализация
         public CompoundTag toNBT() {
             CompoundTag tag = new CompoundTag();
             tag.putLong("Center", center.asLong());
             tag.putDouble("InflationRate", inflationRate);
-            CompoundTag demTag = new CompoundTag();
-            for (Map.Entry<Item, Double> e : demandFactors.entrySet()) {
-                demTag.putDouble(BuiltInRegistries.ITEM.getKey(e.getKey()).toString(), e.getValue());
-            }
-            tag.put("DemandFactors", demTag);
-            CompoundTag supTag = new CompoundTag();
-            for (Map.Entry<Item, Double> e : supplyFactors.entrySet()) {
-                supTag.putDouble(BuiltInRegistries.ITEM.getKey(e.getKey()).toString(), e.getValue());
-            }
-            tag.put("SupplyFactors", supTag);
+            CompoundTag dem = new CompoundTag();
+            demandFactors.forEach((i, v) -> dem.putDouble(BuiltInRegistries.ITEM.getKey(i).toString(), v));
+            tag.put("DemandFactors", dem);
+            CompoundTag sup = new CompoundTag();
+            supplyFactors.forEach((i, v) -> sup.putDouble(BuiltInRegistries.ITEM.getKey(i).toString(), v));
+            tag.put("SupplyFactors", sup);
             return tag;
         }
 
         public static VillageInfo fromNBT(CompoundTag tag) {
-            BlockPos center = BlockPos.of(tag.getLong("Center"));
-            VillageInfo info = new VillageInfo(center);
-            if (tag.contains("InflationRate")) {
-                info.inflationRate = tag.getDouble("InflationRate");
+            VillageInfo info = new VillageInfo(BlockPos.of(tag.getLong("Center")));
+            info.inflationRate = tag.contains("InflationRate") ? tag.getDouble("InflationRate") : 1.0;
+            CompoundTag dem = tag.getCompound("DemandFactors");
+            for (String k : dem.getAllKeys()) {
+                Item i = BuiltInRegistries.ITEM.get(ResourceLocation.parse(k));
+                if (i != Items.AIR) info.demandFactors.put(i, dem.getDouble(k));
             }
-            if (tag.contains("DemandFactors")) {
-                CompoundTag demTag = tag.getCompound("DemandFactors");
-                for (String key : demTag.getAllKeys()) {
-                    Item item = BuiltInRegistries.ITEM.get(ResourceLocation.parse(key));
-                    if (item != Items.AIR) {
-                        info.demandFactors.put(item, demTag.getDouble(key));
-                    }
-                }
-            }
-            if (tag.contains("SupplyFactors")) {
-                CompoundTag supTag = tag.getCompound("SupplyFactors");
-                for (String key : supTag.getAllKeys()) {
-                    Item item = BuiltInRegistries.ITEM.get(ResourceLocation.parse(key));
-                    if (item != Items.AIR) {
-                        info.supplyFactors.put(item, supTag.getDouble(key));
-                    }
-                }
+            CompoundTag sup = tag.getCompound("SupplyFactors");
+            for (String k : sup.getAllKeys()) {
+                Item i = BuiltInRegistries.ITEM.get(ResourceLocation.parse(k));
+                if (i != Items.AIR) info.supplyFactors.put(i, sup.getDouble(k));
             }
             return info;
         }
@@ -191,25 +140,21 @@ public class VillageNetworkData extends SavedData {
     @Override
     public CompoundTag save(CompoundTag tag, HolderLookup.Provider provider) {
         ListTag list = new ListTag();
-        for (Map.Entry<BlockPos, VillageInfo> entry : villages.entrySet()) {
-            CompoundTag villageTag = entry.getValue().toNBT();
-            villageTag.putLong("Pos", entry.getKey().asLong());
-            list.add(villageTag);
-        }
+        villages.forEach((pos, info) -> {
+            CompoundTag vTag = info.toNBT();
+            vTag.putLong("Pos", pos.asLong());
+            list.add(vTag);
+        });
         tag.put("Villages", list);
         return tag;
     }
 
     public static VillageNetworkData load(CompoundTag tag, HolderLookup.Provider provider) {
         VillageNetworkData data = new VillageNetworkData();
-        if (tag.contains("Villages")) {
-            ListTag list = tag.getList("Villages", Tag.TAG_COMPOUND);
-            for (int i = 0; i < list.size(); i++) {
-                CompoundTag villageTag = list.getCompound(i);
-                BlockPos pos = BlockPos.of(villageTag.getLong("Pos"));
-                VillageInfo info = VillageInfo.fromNBT(villageTag);
-                data.villages.put(pos, info);
-            }
+        ListTag list = tag.getList("Villages", Tag.TAG_COMPOUND);
+        for (int i = 0; i < list.size(); i++) {
+            CompoundTag vTag = list.getCompound(i);
+            data.villages.put(BlockPos.of(vTag.getLong("Pos")), VillageInfo.fromNBT(vTag));
         }
         return data;
     }
