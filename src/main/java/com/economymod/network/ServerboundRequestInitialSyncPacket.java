@@ -1,6 +1,7 @@
 package com.economymod.network;
 
 import com.economymod.economy.IEconomicActor;
+import com.economymod.economy.PriceCalculator;
 import com.economymod.gui.menu.EconomyTradeMenu;
 import com.economymod.registry.ModAttachments;
 import io.netty.buffer.ByteBuf;
@@ -13,7 +14,9 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public record ServerboundRequestInitialSyncPacket() implements CustomPacketPayload {
 
@@ -36,15 +39,28 @@ public record ServerboundRequestInitialSyncPacket() implements CustomPacketPaylo
             IEconomicActor owner = menu.getOwnerActor();
             if (owner == null) return;
 
+            // Балансы
             long balance = sp.getData(ModAttachments.PLAYER_ECONOMY.get()).getBalance();
             long budget = owner.getBalance();
             PacketDistributor.sendToPlayer(sp, new ClientboundBalanceSyncPacket(balance, budget));
 
+            // Инвентарь владельца
             List<ItemStack> items = new ArrayList<>();
             for (int i = 0; i < 36; i++) {
                 items.add(owner.getInventory().getItem(i).copy());
             }
             PacketDistributor.sendToPlayer(sp, new ClientboundOwnerInventorySyncPacket(items, budget));
+
+            // === НОВОЕ: расчёт и отправка динамических цен ===
+            Map<Integer, Long> prices = new HashMap<>();
+            for (int i = 0; i < 36; i++) {
+                ItemStack stack = owner.getInventory().getItem(i);
+                if (!stack.isEmpty()) {
+                    long price = PriceCalculator.getBuyPrice(stack, null);
+                    prices.put(i, price);
+                }
+            }
+            PacketDistributor.sendToPlayer(sp, new ClientboundPriceUpdatePacket(prices));
         });
     }
 }

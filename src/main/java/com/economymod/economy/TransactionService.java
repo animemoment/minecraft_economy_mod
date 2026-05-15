@@ -6,10 +6,6 @@ import net.minecraft.world.item.ItemStack;
 
 public class TransactionService {
 
-    /**
-     * Универсальная транзакция между любыми IEconomicActor.
-     * Поддерживает PlayerActor (PlayerInventory) и обычные SimpleContainer.
-     */
     public static boolean processTransaction(IEconomicActor seller, IEconomicActor buyer,
                                              ItemStack item, long pricePerItem, int amount) {
         if (amount <= 0) return false;
@@ -18,11 +14,9 @@ public class TransactionService {
         if (!canRemoveItems(seller, item, amount)) return false;
         if (!canAddItems(buyer, item, amount)) return false;
 
-        // Списываем деньги
         buyer.setBalance(buyer.getBalance() - totalPrice);
         seller.setBalance(seller.getBalance() + totalPrice);
 
-        // Перемещаем предметы
         removeItems(seller, item, amount);
         addItems(buyer, item, amount);
         return true;
@@ -39,11 +33,9 @@ public class TransactionService {
 
     public static boolean canAddItems(IEconomicActor actor, ItemStack item, int amount) {
         if (actor instanceof PlayerActor playerActor) {
-            // Проще: проверяем через стандартный add, но без реального добавления
             Inventory inv = playerActor.getPlayerInventory();
             int freeSlot = inv.getFreeSlot();
-            if (freeSlot >= 0) return true; // есть пустой слот
-            // Ищем слот с таким же предметом и свободным местом
+            if (freeSlot >= 0) return true;
             for (int i = 0; i < inv.getContainerSize(); i++) {
                 ItemStack s = inv.getItem(i);
                 if (ItemStack.isSameItemSameComponents(s, item) && s.getCount() + amount <= s.getMaxStackSize()) {
@@ -96,6 +88,26 @@ public class TransactionService {
         }
     }
 
+    public static boolean addItemsSafe(IEconomicActor actor, ItemStack item, int amount) {
+        if (actor instanceof PlayerActor playerActor) {
+            ItemStack copy = item.copy();
+            copy.setCount(amount);
+            return playerActor.getPlayerInventory().add(copy);
+        }
+        SimpleContainer inv = actor.getInventory();
+        if (inv == null) return false;
+        ItemStack copy = item.copy();
+        copy.setCount(amount);
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            ItemStack s = inv.getItem(i);
+            if (s.isEmpty()) { inv.setItem(i, copy); return true; }
+            else if (ItemStack.isSameItemSameComponents(s, copy) && s.getCount() + copy.getCount() <= copy.getMaxStackSize()) {
+                s.grow(copy.getCount()); return true;
+            }
+        }
+        return false;
+    }
+
     private static int countItems(SimpleContainer inv, ItemStack item) {
         int count = 0;
         for (int i = 0; i < inv.getContainerSize(); i++) {
@@ -124,26 +136,6 @@ public class TransactionService {
                 remaining -= take;
             }
         }
-    }
-
-    public static boolean addItemsSafe(IEconomicActor actor, ItemStack item, int amount) {
-        if (actor instanceof PlayerActor playerActor) {
-            ItemStack copy = item.copy();
-            copy.setCount(amount);
-            return playerActor.getPlayerInventory().add(copy);
-        }
-        SimpleContainer inv = actor.getInventory();
-        if (inv == null) return false;
-        ItemStack copy = item.copy();
-        copy.setCount(amount);
-        for (int i = 0; i < inv.getContainerSize(); i++) {
-            ItemStack s = inv.getItem(i);
-            if (s.isEmpty()) { inv.setItem(i, copy); return true; }
-            else if (ItemStack.isSameItemSameComponents(s, copy) && s.getCount() + copy.getCount() <= copy.getMaxStackSize()) {
-                s.grow(copy.getCount()); return true;
-            }
-        }
-        return false;
     }
 
     private static void removeFromInventory(Inventory inv, ItemStack item, int amount) {

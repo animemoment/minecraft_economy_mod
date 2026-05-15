@@ -1,4 +1,3 @@
-// ClientboundTransactionResultPacket.java
 package com.economymod.network;
 
 import com.economymod.gui.menu.EconomyTradeMenu;

@@ -18,7 +18,7 @@ public class PlayerActor implements IEconomicActor {
 
     @Override
     public SimpleContainer getInventory() {
-        return null; // инвентарь игрока не SimpleContainer, но мы работаем через getPlayerInventory()
+        return null; // инвентарь игрока не SimpleContainer, работаем через getPlayerInventory()
     }
 
     @Override

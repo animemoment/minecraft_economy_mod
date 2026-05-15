@@ -1,22 +1,26 @@
 package com.economymod.gui.menu;
 
-import java.util.Map;
+import com.economymod.EconomyMod;
 import com.economymod.economy.IEconomicActor;
 import com.economymod.economy.PlayerActor;
 import com.economymod.economy.PriceCalculator;
 import com.economymod.network.ClientboundBalanceSyncPacket;
+import com.economymod.network.ClientboundFullPriceTablePacket;
 import com.economymod.network.ClientboundOwnerInventorySyncPacket;
+import com.economymod.network.ClientboundPriceUpdatePacket;
 import com.economymod.registry.ModMenus;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.inventory.*;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.network.PacketDistributor;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 public class EconomyTradeMenu extends AbstractContainerMenu {
 
@@ -32,7 +36,7 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
     private final IEconomicActor ownerActor;
     private final PlayerActor playerActor;
     private final SimpleContainer ownerInventory;
-    private final int[] prices;
+    private final long[] prices;
     private long clientBalance;
     private long clientBudget;
     public final SimpleContainer buyContainer = new SimpleContainer(9);
@@ -50,7 +54,7 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
         this.ownerActor = owner;
         this.playerActor = new PlayerActor(playerInv.player);
         this.ownerInventory = owner != null ? owner.getInventory() : new SimpleContainer(36);
-        this.prices = new int[OWNER_SLOTS];
+        this.prices = new long[OWNER_SLOTS];
 
         // Слоты владельца (0..35)
         for (int r = 0; r < 4; r++)
@@ -93,6 +97,7 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
 
         refreshPrices();
 
+        // Синхронизация при открытии (сервер)
         if (owner != null && playerInv.player instanceof ServerPlayer sp) {
             List<ItemStack> items = new ArrayList<>();
             for (int i = 0; i < OWNER_SLOTS; i++) items.add(ownerInventory.getItem(i).copy());
@@ -102,17 +107,42 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
             PacketDistributor.sendToPlayer(sp, new ClientboundBalanceSyncPacket(playerBalance, budget));
             this.clientBalance = playerBalance;
             this.clientBudget = budget;
+
+            // Отправка цен на слоты
+            Map<Integer, Long> pricesMap = new HashMap<>();
+            for (int i = 0; i < OWNER_SLOTS; i++) {
+                if (!ownerInventory.getItem(i).isEmpty()) {
+                    pricesMap.put(i, prices[i]);
+                }
+            }
+            PacketDistributor.sendToPlayer(sp, new ClientboundPriceUpdatePacket(pricesMap));
+
+            // Отправка полной таблицы цен клиенту
+            if (PriceCalculator.getPriceTable() != null) {
+                Map<String, Long> fullTable = new HashMap<>();
+                PriceCalculator.getPriceTable().getAllPrices().forEach((item, price) -> {
+                    ResourceLocation key = BuiltInRegistries.ITEM.getKey(item);
+                    fullTable.put(key.toString(), price);
+                });
+                PacketDistributor.sendToPlayer(sp, new ClientboundFullPriceTablePacket(fullTable));
+            }
+
+            EconomyMod.LOGGER.info("Sent initial sync for trader: inventory={}, prices={}", items.size(), pricesMap.size());
         }
     }
 
     public void refreshPrices() {
         for (int i = 0; i < OWNER_SLOTS; i++) {
             ItemStack st = ownerInventory.getItem(i);
-            prices[i] = !st.isEmpty() ? (int) PriceCalculator.getBuyPrice(st, null) : 0;
+            if (!st.isEmpty()) {
+                prices[i] = PriceCalculator.getBuyPrice(st, null);
+            } else {
+                prices[i] = 0;
+            }
         }
     }
 
-    public int getPrice(int slot) { return prices[slot]; }
+    public long getPrice(int slot) { return prices[slot]; }
 
     public long getTotalBuyCost() {
         long total = 0;
@@ -133,18 +163,15 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
     }
 
     public void updateFromServer(List<ItemStack> inventory, long budget) {
-        for (int i = 0; i < Math.min(inventory.size(), OWNER_SLOTS); i++) {
+        for (int i = 0; i < Math.min(inventory.size(), OWNER_SLOTS); i++)
             ownerInventory.setItem(i, inventory.get(i));
-            this.slots.get(i).setChanged(); // уведомление слота
-        }
         this.clientBudget = budget;
-        refreshPrices();
     }
 
     public void updatePrices(Map<Integer, Long> serverPrices) {
         serverPrices.forEach((slot, price) -> {
             if (slot >= 0 && slot < OWNER_SLOTS) {
-                prices[slot] = price.intValue();
+                prices[slot] = price;
             }
         });
     }
@@ -166,8 +193,6 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
             }
         }
     }
-
-
 
     @Override public void removed(Player player) {
         super.removed(player);

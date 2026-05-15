@@ -20,11 +20,7 @@ public record ClientboundPriceUpdatePacket(Map<Integer, Long> slotPrices) implem
             new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath(EconomyMod.MODID, "price_update"));
 
     public static final StreamCodec<ByteBuf, ClientboundPriceUpdatePacket> STREAM_CODEC = StreamCodec.composite(
-            ByteBufCodecs.map(
-                    HashMap::new,
-                    ByteBufCodecs.VAR_INT,
-                    ByteBufCodecs.VAR_LONG
-            ),
+            ByteBufCodecs.map(HashMap::new, ByteBufCodecs.VAR_INT, ByteBufCodecs.VAR_LONG),
             ClientboundPriceUpdatePacket::slotPrices,
             ClientboundPriceUpdatePacket::new
     );

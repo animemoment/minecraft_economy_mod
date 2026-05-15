@@ -27,13 +27,13 @@ import net.minecraft.world.entity.ai.village.poi.PoiManager;
 import net.minecraft.world.entity.ai.village.poi.PoiTypes;
 import net.minecraft.world.entity.npc.AbstractVillager;
 import net.minecraft.world.entity.npc.Villager;
-import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.trading.MerchantOffers;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -42,10 +42,12 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 
 public class EconomyTraderEntity extends AbstractVillager implements MenuProvider, IEconomicActor {
+
     public final SimpleContainer inventory = new SimpleContainer(36);
     public long budget = 500L;
     private BlockPos currentBazaar;
     public long lastTravelTime = 0;
+    private boolean pricesNeedRecalc = true;
 
     public EconomyTraderEntity(EntityType<? extends AbstractVillager> type, Level level) {
         super(type, level);
@@ -87,14 +89,26 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
         this.goalSelector.addGoal(4, new WaterAvoidingRandomStrollGoal(this, 0.35D));
     }
 
+    // Обязательные методы AbstractVillager
     @Override protected void updateTrades() {}
     @Override protected void rewardTradeXp(net.minecraft.world.item.trading.MerchantOffer o) {}
-
     @Nullable @Override public AgeableMob getBreedOffspring(ServerLevel l, AgeableMob o) { return null; }
+    @Override public MerchantOffers getOffers() { return new MerchantOffers(); }
+    @Override public void overrideOffers(MerchantOffers offers) {}
+    @Override public void overrideXp(int xp) {}
+    @Override public int getVillagerXp() { return 0; }
 
     @Override
     public InteractionResult mobInteract(Player p, InteractionHand h) {
-        if (!this.level().isClientSide) { p.openMenu(this); return InteractionResult.SUCCESS; }
+        if (!this.level().isClientSide) {
+            if (pricesNeedRecalc && PriceCalculator.isPriceTableReady()) {
+                pricesNeedRecalc = false;
+                syncInventoryToClients();
+                EconomyMod.LOGGER.info("Prices recalculated for trader {} on GUI open", this.getId());
+            }
+            p.openMenu(this);
+            return InteractionResult.SUCCESS;
+        }
         return InteractionResult.CONSUME;
     }
 
@@ -103,7 +117,6 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
         return new EconomyTradeMenu(id, inv, this);
     }
 
-    // IEconomicActor
     @Override public SimpleContainer getInventory() { return inventory; }
     @Override public long getBalance() { return budget; }
     @Override public void setBalance(long balance) { this.budget = balance; }
@@ -130,6 +143,7 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
         tag.putLong("Budget", budget);
         if (currentBazaar != null) tag.putLong("CurrentBazaar", currentBazaar.asLong());
         tag.putLong("LastTravelTime", lastTravelTime);
+        tag.putBoolean("PricesNeedRecalc", pricesNeedRecalc);
     }
 
     @Override
@@ -139,6 +153,8 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
         if (tag.contains("Budget")) budget = tag.getLong("Budget");
         if (tag.contains("CurrentBazaar")) currentBazaar = BlockPos.of(tag.getLong("CurrentBazaar"));
         if (tag.contains("LastTravelTime")) lastTravelTime = tag.getLong("LastTravelTime");
+        if (tag.contains("PricesNeedRecalc")) pricesNeedRecalc = tag.getBoolean("PricesNeedRecalc");
+        else pricesNeedRecalc = true;
     }
 
     private void updateCurrentBazaar() {
@@ -152,10 +168,18 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
     public void arriveAtVillage(BlockPos bazaarPos) {
         this.currentBazaar = bazaarPos;
         updateCurrentBazaar();
-        tradeWithVillage();
+        if (PriceCalculator.isPriceTableReady()) {
+            tradeWithVillage();
+        } else {
+            EconomyMod.LOGGER.debug("Delaying trade – PriceTable not ready");
+        }
     }
 
     public void tradeWithVillage() {
+        if (!PriceCalculator.isPriceTableReady()) {
+            EconomyMod.LOGGER.debug("Skipping trade with villagers: PriceTable not ready");
+            return;
+        }
         if (currentBazaar == null) return;
         tradeWithVillagers();
     }
@@ -168,7 +192,6 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
 
         List<Villager> villagers = level().getEntitiesOfClass(Villager.class,
                 new AABB(currentBazaar).inflate(64), villager -> villager.isAlive());
-
         EconomyMod.LOGGER.info("=== Trader {} trading with {} villagers at {} ===", this.getId(), villagers.size(), currentBazaar);
         if (villagers.isEmpty()) return;
 
@@ -179,7 +202,7 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
         for (Villager villager : villagers) {
             VillagerAttachment attachment = villager.getData(ModAttachments.VILLAGER.get());
             attachment.forceReinitialize();
-            if (attachment.getProfession() == VillagerProfession.NONE) continue;
+            if (attachment.getProfession() == net.minecraft.world.entity.npc.VillagerProfession.NONE) continue;
 
             EconomyMod.LOGGER.info("Processing villager {} ({}), budget: {}, inventory items: {}",
                     villager.getId(), attachment.getProfession(), attachment.getBalance(), countNonEmptySlots(attachment.getInventory()));
@@ -223,7 +246,7 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
 
         for (Villager villager : villagers) {
             VillagerAttachment attachment = villager.getData(ModAttachments.VILLAGER.get());
-            if (attachment.getProfession() == VillagerProfession.NONE) continue;
+            if (attachment.getProfession() == net.minecraft.world.entity.npc.VillagerProfession.NONE) continue;
             List<VillagerAttachment.Offer> offers = attachment.getOffers();
             for (VillagerAttachment.Offer o : offers) {
                 long bestPrice = 0;
@@ -277,7 +300,6 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
         data.setDirty();
         syncInventoryToClients();
 
-        // ====== ОТПРАВКА ДИНАМИЧЕСКИХ ЦЕН ======
         if (currentBazaar != null) {
             Map<Integer, Long> newPrices = new HashMap<>();
             for (int i = 0; i < 36; i++) {

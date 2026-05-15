@@ -126,14 +126,14 @@ public class VillageNetworkData extends SavedData {
             int population = villagers.size();
 
             for (Villager villager : villagers) {
-                var data = villager.getData(ModAttachments.VILLAGER.get());
-                if (data == null) continue;
+                var attachment = villager.getData(ModAttachments.VILLAGER.get());
+                if (attachment == null) continue;
 
-                for (var demand : data.getDemands()) {
+                for (var demand : attachment.getDemands()) {
                     Item item = demand.stack.getItem();
                     totalDemand.merge(item, demand.stack.getCount(), Integer::sum);
                 }
-                for (var offer : data.getOffers()) {
+                for (var offer : attachment.getOffers()) {
                     Item item = offer.stack.getItem();
                     totalSupply.merge(item, offer.stack.getCount(), Integer::sum);
                 }

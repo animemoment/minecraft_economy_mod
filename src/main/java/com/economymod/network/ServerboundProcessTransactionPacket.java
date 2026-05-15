@@ -44,9 +44,9 @@ public record ServerboundProcessTransactionPacket() implements CustomPacketPaylo
             for (int i = 0; i < 9; i++) {
                 ItemStack stack = buyContainer.getItem(i);
                 if (!stack.isEmpty()) {
-                    long pricePerItem = PriceCalculator.getBuyPrice(stack, null); // info пока null, обновим позже
+                    long pricePerItem = PriceCalculator.getBuyPrice(stack, null);
                     int amount = stack.getCount();
-                    long totalCost = pricePerItem * amount;
+                    long totalCost = pricePerItem * (long) amount;
 
                     if (player.getBalance() < totalCost) continue;
                     if (!TransactionService.canRemoveItems(owner, stack, amount)) continue;
@@ -72,7 +72,7 @@ public record ServerboundProcessTransactionPacket() implements CustomPacketPaylo
                 if (!stack.isEmpty()) {
                     long pricePerItem = PriceCalculator.getSellPrice(stack, null);
                     int amount = stack.getCount();
-                    long totalPrice = pricePerItem * amount;
+                    long totalPrice = pricePerItem * (long) amount;
 
                     if (owner.getBalance() < totalPrice) continue;
                     if (!TransactionService.canAddItems(owner, stack, amount)) continue;
@@ -86,13 +86,23 @@ public record ServerboundProcessTransactionPacket() implements CustomPacketPaylo
                 }
             }
 
-            // === ОБНОВЛЕНИЕ ДИНАМИЧЕСКИХ ЦЕН ===
+            // === СИНХРОНИЗАЦИЯ КОРЗИН ===
+            List<ItemStack> buyItems = new ArrayList<>();
+            for (int i = 0; i < 9; i++) buyItems.add(buyContainer.getItem(i).copy());
+            PacketDistributor.sendToPlayer(sp, new ClientboundBuyContainerSyncPacket(buyItems));
+
+            List<ItemStack> sellItems = new ArrayList<>();
+            for (int i = 0; i < 9; i++) sellItems.add(sellContainer.getItem(i).copy());
+            PacketDistributor.sendToPlayer(sp, new ClientboundSellContainerSyncPacket(sellItems));
+
+            // === ПЕРЕСЧЁТ ДИНАМИЧЕСКИХ ЦЕН ===
             BlockPos pos = owner.getPosition();
             if (pos != null && sp.serverLevel() != null) {
                 VillageNetworkData data = VillageNetworkData.get(sp.serverLevel());
                 VillageNetworkData.VillageInfo info = data.getVillageInfo(pos);
                 if (info != null) {
-                    // В будущем: info.recalcFactors(level) – пока пропускаем, используем существующие факторы
+                    info.recalcFactors(sp.serverLevel());
+
                     Map<Integer, Long> newPrices = new HashMap<>();
                     for (int i = 0; i < 36; i++) {
                         ItemStack stack = owner.getInventory().getItem(i);
@@ -103,10 +113,11 @@ public record ServerboundProcessTransactionPacket() implements CustomPacketPaylo
                     }
                     ClientboundPriceUpdatePacket pricePacket = new ClientboundPriceUpdatePacket(newPrices);
                     PacketDistributor.sendToPlayer(sp, pricePacket);
+                    EconomyMod.LOGGER.info("Dynamic prices updated after transaction: {}", newPrices);
                 }
             }
 
-            // === СИНХРОНИЗАЦИЯ ===
+            // === ФИНАЛЬНАЯ СИНХРОНИЗАЦИЯ ===
             long playerBal = player.getBalance();
             long ownerBal = owner.getBalance();
             PacketDistributor.sendToPlayer(sp, new ClientboundBalanceSyncPacket(playerBal, ownerBal));

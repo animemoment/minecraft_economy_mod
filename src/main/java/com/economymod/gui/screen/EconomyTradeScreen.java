@@ -4,6 +4,7 @@ import com.economymod.economy.PriceCalculator;
 import com.economymod.gui.menu.EconomyTradeMenu;
 import com.economymod.network.*;
 import net.minecraft.ChatFormatting;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
@@ -52,6 +53,8 @@ public class EconomyTradeScreen extends AbstractContainerScreen<EconomyTradeMenu
             PacketDistributor.sendToServer(new ServerboundClearBasketsPacket());
         }).bounds(x + 250, y + 155, 20, 20).build();
         this.addRenderableWidget(clearButton);
+
+        PacketDistributor.sendToServer(new ServerboundRequestInitialSyncPacket());
     }
 
     @Override
@@ -101,7 +104,6 @@ public class EconomyTradeScreen extends AbstractContainerScreen<EconomyTradeMenu
 
     @Override
     protected void renderLabels(GuiGraphics g, int mx, int my) {
-        // Верхняя полупрозрачная панель высотой 12px, не перекрывает слоты
         g.fill(0, 0, imageWidth, 12, 0x80000000);
 
         long bal = Math.max(0, menu.getClientBalance());
@@ -172,22 +174,24 @@ public class EconomyTradeScreen extends AbstractContainerScreen<EconomyTradeMenu
     private long getPricePerItem(Slot slot) {
         if (slot == null || !slot.hasItem()) return 0;
         ItemStack stack = slot.getItem();
-        int count = stack.getCount();
-        if (count <= 0) return 0;
-
-        long priceForStack;
         int idx = slot.index;
-        if (idx < EconomyTradeMenu.OWNER_SLOTS) {
-            priceForStack = menu.getPrice(idx);
-        } else if (idx >= EconomyTradeMenu.BUY_START && idx <= EconomyTradeMenu.BUY_END) {
-            priceForStack = PriceCalculator.getBuyPrice(stack, null);
-        } else if (idx >= EconomyTradeMenu.SELL_START && idx <= EconomyTradeMenu.SELL_END) {
-            priceForStack = PriceCalculator.getSellPrice(stack, null);
-        } else {
-            priceForStack = PriceCalculator.getSellPrice(stack, null);
-        }
 
-        return priceForStack / count;
+        if (idx < EconomyTradeMenu.OWNER_SLOTS) {
+            return menu.getPrice(idx);
+        } else if (idx >= EconomyTradeMenu.BUY_START && idx <= EconomyTradeMenu.BUY_END) {
+            for (int j = 0; j < EconomyTradeMenu.OWNER_SLOTS; j++) {
+                ItemStack ownerStack = menu.slots.get(j).getItem();
+                if (ItemStack.isSameItemSameComponents(ownerStack, stack)) {
+                    return menu.getPrice(j);
+                }
+            }
+            return 0;
+        } else if (idx >= EconomyTradeMenu.SELL_START && idx <= EconomyTradeMenu.SELL_END) {
+            return PriceCalculator.getSellPrice(stack, null);
+        } else if (idx >= EconomyTradeMenu.PLAYER_INV_START && idx <= EconomyTradeMenu.HOTBAR_END) {
+            return PriceCalculator.getSellPrice(stack, null);
+        }
+        return 0;
     }
 
     @Override
@@ -218,5 +222,9 @@ public class EconomyTradeScreen extends AbstractContainerScreen<EconomyTradeMenu
         transactionFailed = true;
         failedAnimationTick = 20;
         transactionSuccess = false;
+    }
+
+    public void refreshData() {
+        this.successAnimationTick = 2;
     }
 }

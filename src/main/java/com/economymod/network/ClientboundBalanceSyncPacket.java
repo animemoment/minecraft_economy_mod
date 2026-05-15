@@ -1,6 +1,7 @@
 package com.economymod.network;
 
 import com.economymod.gui.menu.EconomyTradeMenu;
+import com.economymod.gui.screen.EconomyTradeScreen;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -32,6 +33,9 @@ public record ClientboundBalanceSyncPacket(long balance, long traderBudget) impl
             if (player != null && player.containerMenu instanceof EconomyTradeMenu menu) {
                 menu.setClientBalance(packet.balance());
                 menu.setClientBudget(packet.traderBudget());
+                if (Minecraft.getInstance().screen instanceof EconomyTradeScreen screen) {
+                    screen.refreshData();
+                }
             }
         });
     }
