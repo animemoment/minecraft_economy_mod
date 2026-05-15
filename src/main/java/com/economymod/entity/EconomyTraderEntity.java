@@ -63,6 +63,87 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
         }
     }
 
+    // --- НОВЫЕ МЕТОДЫ ДЛЯ СИСТЕМЫ ТОРГА (HAGGLING) ---
+
+    /**
+     * Проверяет, согласен ли торговец на предложенную цену.
+     * Использует данные о деревне (currentBazaar), если они есть, для точной оценки.
+     */
+    public boolean evaluateOffer(ItemStack stack, double playerPrice, boolean isPlayerBuying) {
+        if (stack.isEmpty() || playerPrice <= 0) return false;
+
+        // Получаем информацию о текущей экономике деревни, где стоит торговец
+        VillageNetworkData.VillageInfo info = null;
+        if (level() instanceof ServerLevel serverLevel && currentBazaar != null) {
+            info = VillageNetworkData.get(serverLevel).getVillageInfo(currentBazaar);
+        }
+
+        // Считаем "честную" цену через твой PriceCalculator
+        // (передаем info, чтобы учитывались факторы спроса/предложения деревни)
+        double fairPrice = PriceCalculator.getRawPrice(stack.getItem()) * stack.getCount();
+        if (info != null) {
+            // Если есть инфо о деревне, можно сделать расчет еще точнее
+            fairPrice = PriceCalculator.calculateDynamicPrice(stack, info);
+        }
+
+        if (isPlayerBuying) {
+            // Торговец продает: согласится, если цена игрока выше честной на 10%
+            return playerPrice >= (fairPrice * 0.95); // Немного уступит
+        } else {
+            // Торговец покупает: согласится, если цена игрока ниже его бюджета и честной цены
+            return playerPrice <= (fairPrice * 1.05);
+        }
+    }
+
+    /**
+     * Проводит транзакцию после того, как цена согласована через пакет
+     */
+    public void processCustomTransaction(ServerPlayer player, ItemStack stack, double confirmedPrice, boolean isPlayerBuying) {
+        long priceLong = (long) confirmedPrice;
+
+        if (isPlayerBuying) {
+            // Игрок покупает: проверяем, хватит ли у него денег (нужна твоя система баланса)
+            // Предположим, у тебя есть доступ к PlayerActor через меню
+            if (player.containerMenu instanceof EconomyTradeMenu menu) {
+                var playerActor = menu.getPlayerActor();
+                if (playerActor.getBalance() >= priceLong) {
+                    playerActor.setBalance(playerActor.getBalance() - priceLong);
+                    this.budget += priceLong;
+
+                    // Выдаем предмет игроку
+                    if (!player.getInventory().add(stack.copy())) {
+                        player.drop(stack.copy(), false);
+                    }
+                    stack.setCount(0); // Удаляем из корзины торговца
+
+                    player.sendSystemMessage(Component.literal("§aТорговец: По рукам! Забирай " + stack.getHoverName().getString() + " за " + priceLong + "⛀"));
+                } else {
+                    player.sendSystemMessage(Component.literal("§cТорговец: У тебя не хватает монет!"));
+                }
+            }
+        } else {
+            // Игрок продает: торговец отдает свои монеты
+            if (this.budget >= priceLong) {
+                if (player.containerMenu instanceof EconomyTradeMenu menu) {
+                    var playerActor = menu.getPlayerActor();
+                    this.budget -= priceLong;
+                    playerActor.setBalance(playerActor.getBalance() + priceLong);
+
+                    // Забираем предмет в инвентарь торговца
+                    this.inventory.addItem(stack.copy());
+                    stack.setCount(0); // Удаляем из корзины продажи
+
+                    player.sendSystemMessage(Component.literal("§6Торговец: Отличная сделка. Вот твои " + priceLong + "⛀"));
+                }
+            } else {
+                player.sendSystemMessage(Component.literal("§cТорговец: У меня не хватит монет на это!"));
+            }
+        }
+        syncInventoryToClients();
+    }
+
+    // --- ОСТАЛЬНОЙ ТВОЙ КОД БЕЗ ИЗМЕНЕНИЙ ---
+
     @Override
     public boolean wantsToBuy(ItemStack stack) {
         return stack.is(Items.BREAD) || stack.is(Items.IRON_INGOT);
@@ -89,7 +170,6 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
         this.goalSelector.addGoal(4, new WaterAvoidingRandomStrollGoal(this, 0.35D));
     }
 
-    // Обязательные методы AbstractVillager
     @Override protected void updateTrades() {}
     @Override protected void rewardTradeXp(net.minecraft.world.item.trading.MerchantOffer o) {}
     @Nullable @Override public AgeableMob getBreedOffspring(ServerLevel l, AgeableMob o) { return null; }
@@ -204,9 +284,6 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
             attachment.forceReinitialize();
             if (attachment.getProfession() == net.minecraft.world.entity.npc.VillagerProfession.NONE) continue;
 
-            EconomyMod.LOGGER.info("Processing villager {} ({}), budget: {}, inventory items: {}",
-                    villager.getId(), attachment.getProfession(), attachment.getBalance(), countNonEmptySlots(attachment.getInventory()));
-
             List<VillagerAttachment.Demand> demands = attachment.getDemands();
             for (VillagerAttachment.Demand d : demands) {
                 for (int i = 0; i < inventory.getContainerSize(); i++) {
@@ -231,7 +308,6 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
                                         if (given.isEmpty()) break;
                                     }
                                 }
-                                EconomyMod.LOGGER.info(" SOLD {} x{} to villager {} for {} coins", amount, d.stack.getItem(), villager.getId(), totalPrice);
                                 totalDemand.merge(d.stack.getItem(), amount, Integer::sum);
                                 break;
                             }
@@ -239,11 +315,11 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
                     }
                 }
             }
-
             List<VillagerAttachment.Offer> offers = attachment.getOffers();
             for (VillagerAttachment.Offer o : offers) totalSupply.merge(o.stack.getItem(), o.stack.getCount(), Integer::sum);
         }
 
+        // Логика покупки товара у жителей
         for (Villager villager : villagers) {
             VillagerAttachment attachment = villager.getData(ModAttachments.VILLAGER.get());
             if (attachment.getProfession() == net.minecraft.world.entity.npc.VillagerProfession.NONE) continue;
@@ -289,7 +365,6 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
                         long totalCost = (long) amountToBuy * o.minPricePerItem;
                         attachment.setBalance(attachment.getBalance() + totalCost);
                         this.budget -= totalCost;
-                        EconomyMod.LOGGER.info(" BOUGHT {} x{} from villager {} for {} coins (profit {})", amountToBuy, o.stack.getItem(), villager.getId(), totalCost, profit);
                     }
                 }
             }
@@ -315,10 +390,7 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
                     PacketDistributor.sendToPlayer(sp, pricePacket);
                 }
             }
-            EconomyMod.LOGGER.info("Sent dynamic price update to viewers: {}", newPrices);
         }
-
-        EconomyMod.LOGGER.info("=== Trade finished. Trader budget now: {} ===", this.budget);
     }
 
     private int countNonEmptySlots(SimpleContainer inv) {

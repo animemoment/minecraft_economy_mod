@@ -1,93 +1,61 @@
 package com.economymod.economy;
 
-import com.economymod.world.VillageNetworkData;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import org.jetbrains.annotations.Nullable;
-
 import java.util.Map;
+import java.util.HashMap;
 
 public class PriceCalculator {
 
-    @Nullable
-    private static ItemPriceTable priceTable = null;
+    private static ItemPriceTable serverPriceTable;
+    private static Map<Item, Double> clientPriceTable = new HashMap<>();
 
-    // Клиентская таблица, полученная с сервера
-    @Nullable
-    private static Map<Item, Long> clientPriceTable = null;
+    // Установка таблицы на сервере
+    public static void setPriceTable(ItemPriceTable table) {
+        serverPriceTable = table;
+    }
 
-    public static void setPriceTable(@Nullable ItemPriceTable table) {
-        priceTable = table;
+    // Синхронизация с клиентом (принимает Long из пакета и хранит как Double)
+    public static void setClientPriceTable(Map<Item, Long> longTable) {
+        clientPriceTable.clear();
+        longTable.forEach((item, price) -> clientPriceTable.put(item, price.doubleValue()));
+    }
+
+    public static ItemPriceTable getPriceTable() {
+        return serverPriceTable;
     }
 
     public static boolean isPriceTableReady() {
-        return priceTable != null;
+        return serverPriceTable != null || !clientPriceTable.isEmpty();
     }
 
-    @Nullable
-    public static ItemPriceTable getPriceTable() {
-        return priceTable;
-    }
-
-    public static void setClientPriceTable(@Nullable Map<Item, Long> table) {
-        clientPriceTable = table;
-    }
-
-    public static long calculateDynamicPrice(ItemStack stack, VillageNetworkData.VillageInfo villageInfo) {
-        long basePrice = getBasePrice(stack.getItem());
-        if (villageInfo == null || stack.isEmpty()) return basePrice;
-        double D = villageInfo.getDemandFactor(stack.getItem());
-        double S = villageInfo.getSupplyFactor(stack.getItem());
-        double E = Math.max(0.25, Math.min(4.0, D / S));
-        double I = villageInfo.getInflationRate();
-        double R = 1.0 + (64.0 - stack.getMaxStackSize()) / 64.0 * 0.5;
-        double U = 1.0 + villageInfo.getAverageDesire(stack.getItem()) * 0.5;
-        long adjusted = (long) (basePrice * E * I * R * U);
-        return Math.max(1L, adjusted);
-    }
-
-    public static long getBuyPrice(ItemStack stack, VillageNetworkData.VillageInfo villageInfo) {
-        return calculateDynamicPrice(stack, villageInfo);
-    }
-
-    public static long getSellPrice(ItemStack stack, VillageNetworkData.VillageInfo villageInfo) {
-        return Math.max(1L, getBasePrice(stack.getItem()) / 2);
-    }
-
-    public static long getBasePrice(Item item) {
-        // 1. Серверная таблица
-        if (priceTable != null) {
-            return priceTable.getPrice(item);
+    // Получение «сырой» цены за 1 шт
+    public static double getRawPrice(Item item) {
+        if (serverPriceTable != null) {
+            return serverPriceTable.getPrice(item);
         }
-        // 2. Клиентская таблица (получена с сервера)
-        if (clientPriceTable != null) {
-            return clientPriceTable.getOrDefault(item, getFallbackPrice(item));
-        }
-        // 3. Статический fallback
-        return getFallbackPrice(item);
+        return clientPriceTable.getOrDefault(item, 0.10);
     }
 
-    private static long getFallbackPrice(Item item) {
-        if (item == Items.DIAMOND) return 40L;
-        if (item == Items.EMERALD) return 50L;
-        if (item == Items.IRON_INGOT) return 7L;
-        if (item == Items.GOLD_INGOT) return 12L;
-        if (item == Items.COAL) return 2L;
-        if (item == Items.STICK) return 1L;
-        if (item == Items.OAK_PLANKS) return 1L;
-        if (item == Items.OAK_LOG) return 2L;
-        if (item == Items.IRON_ORE) return 5L;
-        if (item == Items.GOLD_ORE) return 8L;
-        if (item == Items.DIAMOND_ORE) return 30L;
-        if (item == Items.EMERALD_ORE) return 40L;
-        if (item == Items.RAW_IRON) return 5L;
-        if (item == Items.RAW_GOLD) return 8L;
-        if (item == Items.RAW_COPPER) return 3L;
-        if (item == Items.STONE) return 1L;
-        if (item == Items.COBBLESTONE) return 1L;
-        if (item == Items.DIRT) return 1L;
-        if (item.getDefaultMaxStackSize() <= 16) return 8L;
-        return 1L;
+    // Цена покупки (для обычных сделок, с наценкой)
+    public static long getBuyPrice(ItemStack stack, Object info) {
+        double price = getRawPrice(stack.getItem()) * stack.getCount();
+        return (long) Math.max(1, Math.round(price * 1.2));
+    }
+
+    // Цена продажи (для обычных сделок, со скидкой)
+    public static long getSellPrice(ItemStack stack, Object info) {
+        double price = getRawPrice(stack.getItem()) * stack.getCount();
+        return (long) Math.max(1, Math.round(price * 0.8));
+    }
+
+    // Динамическая цена (для совместимости с твоим EconomyTraderEntity)
+    public static long calculateDynamicPrice(ItemStack stack, Object info) {
+        return getBuyPrice(stack, info);
+    }
+
+    public static double calculateStackPrice(ItemStack stack) {
+        if (stack.isEmpty()) return 0.0;
+        return getRawPrice(stack.getItem()) * stack.getCount();
     }
 }

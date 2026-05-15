@@ -4,11 +4,11 @@ import com.economymod.economy.PriceCalculator;
 import com.economymod.gui.menu.EconomyTradeMenu;
 import com.economymod.network.*;
 import net.minecraft.ChatFormatting;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.Slot;
@@ -45,13 +45,17 @@ public class EconomyTradeScreen extends AbstractContainerScreen<EconomyTradeMenu
         super.init();
         int x = (width - imageWidth) / 2;
         int y = (height - imageHeight) / 2;
+
+        // Кнопка "Сделка"
         this.dealButton = Button.builder(Component.literal("Сделка"), btn -> {
             PacketDistributor.sendToServer(new ServerboundProcessTransactionPacket());
-        }).bounds(x + 196, y + 155, 50, 20).build();
+        }).bounds(x + 196, y + 155, 60, 20).build();
         this.addRenderableWidget(dealButton);
+
+        // Кнопка "Очистить"
         this.clearButton = Button.builder(Component.literal("✕"), btn -> {
             PacketDistributor.sendToServer(new ServerboundClearBasketsPacket());
-        }).bounds(x + 250, y + 155, 20, 20).build();
+        }).bounds(x + 260, y + 155, 20, 20).build();
         this.addRenderableWidget(clearButton);
 
         PacketDistributor.sendToServer(new ServerboundRequestInitialSyncPacket());
@@ -60,79 +64,83 @@ public class EconomyTradeScreen extends AbstractContainerScreen<EconomyTradeMenu
     @Override
     protected void renderBg(GuiGraphics g, float pt, int mx, int my) {
         int x = (width - imageWidth) / 2, y = (height - imageHeight) / 2;
+
+        // Отрисовка фона
         g.fill(x, y, x + imageWidth, y + imageHeight, 0xFFC6C6C6);
 
+        // Отрисовка слотов владельца
         for (int i = 0; i < EconomyTradeMenu.OWNER_SLOTS; i++) {
             Slot s = menu.slots.get(i);
-            int sx = x + s.x, sy = y + s.y;
-            g.fill(sx, sy, sx + 16, sy + 16, 0xFF8B8B8B);
-            g.fill(sx + 1, sy + 1, sx + 15, sy + 15, 0xFF373737);
+            drawSlotBack(g, x + s.x, y + s.y, 0xFF373737);
         }
 
+        // Отрисовка слотов инвентаря игрока
         for (int i = EconomyTradeMenu.PLAYER_INV_START; i <= EconomyTradeMenu.HOTBAR_END; i++) {
             Slot s = menu.slots.get(i);
-            int sx = x + s.x, sy = y + s.y;
-            g.fill(sx, sy, sx + 16, sy + 16, 0xFF8B8B8B);
-            g.fill(sx + 1, sy + 1, sx + 15, sy + 15, 0xFF373737);
+            drawSlotBack(g, x + s.x, y + s.y, 0xFF373737);
         }
 
+        // Слоты покупки (Зеленые)
         for (int i = EconomyTradeMenu.BUY_START; i <= EconomyTradeMenu.BUY_END; i++) {
             Slot s = menu.slots.get(i);
-            int sx = x + s.x, sy = y + s.y;
-            g.fill(sx, sy, sx + 16, sy + 16, 0xFFA8D5A8);
-            g.fill(sx + 1, sy + 1, sx + 15, sy + 15, 0xFF2E4A2E);
+            drawSlotBack(g, x + s.x, y + s.y, 0xFF2E4A2E);
         }
 
+        // Слоты продажи (Красные)
         for (int i = EconomyTradeMenu.SELL_START; i <= EconomyTradeMenu.SELL_END; i++) {
             Slot s = menu.slots.get(i);
-            int sx = x + s.x, sy = y + s.y;
-            g.fill(sx, sy, sx + 16, sy + 16, 0xFFD5A8A8);
-            g.fill(sx + 1, sy + 1, sx + 15, sy + 15, 0xFF4A2E2E);
+            drawSlotBack(g, x + s.x, y + s.y, 0xFF4A2E2E);
         }
 
-        if (transactionFailed) drawButtonBorder(g, x, y, 0xFFFF0000);
-        if (transactionSuccess) drawButtonBorder(g, x, y, 0xFF00FF00);
+        if (transactionFailed) drawStatusBorder(g, x, y, 0xFFFF0000);
+        if (transactionSuccess) drawStatusBorder(g, x, y, 0xFF00FF00);
     }
 
-    private void drawButtonBorder(GuiGraphics g, int x, int y, int color) {
+    private void drawSlotBack(GuiGraphics g, int sx, int sy, int innerColor) {
+        g.fill(sx, sy, sx + 16, sy + 16, 0xFF8B8B8B);
+        g.fill(sx + 1, sy + 1, sx + 15, sy + 15, innerColor);
+    }
+
+    private void drawStatusBorder(GuiGraphics g, int x, int y, int color) {
         int bx = x + 196, by = y + 155;
-        g.fill(bx - 2, by - 2, bx + 52, by, color);
-        g.fill(bx - 2, by + 20, bx + 52, by + 22, color);
+        g.fill(bx - 2, by - 2, bx + 62, by, color);
+        g.fill(bx - 2, by + 20, bx + 62, by + 22, color);
         g.fill(bx - 2, by, bx, by + 20, color);
-        g.fill(bx + 50, by, bx + 52, by + 20, color);
+        g.fill(bx + 60, by, bx + 62, by + 20, color);
     }
 
     @Override
     protected void renderLabels(GuiGraphics g, int mx, int my) {
+        // Верхняя панель с балансом
         g.fill(0, 0, imageWidth, 12, 0x80000000);
 
-        long bal = Math.max(0, menu.getClientBalance());
-        long bud = Math.max(0, menu.getClientBudget());
-        String ownerName = menu.getOwnerActor() != null ? menu.getOwnerActor().getActorDisplayName() : "Owner";
+        double bal = (double)menu.getClientBalance();
+        double bud = (double)menu.getClientBudget();
+        String ownerName = menu.getOwnerActor() != null ? menu.getOwnerActor().getActorDisplayName() : "Торговец";
 
-        Component youText = Component.literal("You: " + bal + "⛀").withStyle(ChatFormatting.GREEN);
-        Component ownerText = Component.literal(ownerName + ": " + bud + "⛀").withStyle(ChatFormatting.GOLD);
+        String youText = String.format("Вы: %.2f⛀", bal);
+        String ownerText = String.format("%s: %.2f⛀", ownerName, bud);
 
         g.drawString(font, youText, 5, 2, 0x00FF00, false);
         int ownerWidth = font.width(ownerText);
         g.drawString(font, ownerText, imageWidth - ownerWidth - 5, 2, 0xFFD700, false);
 
+        // Итоговая сумма сделки
         long buyCost = menu.getTotalBuyCost();
         long sellValue = menu.getTotalSellValue();
-        long diff = sellValue - buyCost;
-        String text;
-        int textColor;
-        if (diff > 0) { text = "+" + diff + "⛀"; textColor = 0x00FF00; }
-        else if (diff < 0) { text = diff + "⛀"; textColor = 0xFF0000; }
-        else { text = "0⛀"; textColor = 0xFFFFFF; }
+        double diff = (double)(sellValue - buyCost);
 
-        g.drawString(font, Component.literal("Итого:"), 196, 146, 0xAAAAAA, false);
-        g.drawString(font, Component.literal(text), 196 + font.width("Итого: ") + 4, 146, textColor, false);
+        String text = String.format("%.2f⛀", diff);
+        int textColor = diff > 0 ? 0x00FF00 : (diff < 0 ? 0xFF0000 : 0xFFFFFF);
+
+        g.drawString(font, Component.literal("Итого:"), 196, 140, 0xAAAAAA, false);
+        g.drawString(font, text, 196 + font.width("Итого: ") + 4, 140, textColor, false);
     }
 
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         super.render(guiGraphics, mouseX, mouseY, partialTick);
+        this.renderTooltip(guiGraphics, mouseX, mouseY);
 
         if (hoveredSlot != null && hoveredSlot.hasItem() && hoverTicks >= HOVER_DELAY) {
             ItemStack stack = hoveredSlot.getItem();
@@ -142,15 +150,13 @@ public class EconomyTradeScreen extends AbstractContainerScreen<EconomyTradeMenu
                     TooltipFlag.NORMAL
             ));
 
-            long pricePerItem = getPricePerItem(hoveredSlot);
+            double pricePerItem = (double)getPricePerItem(hoveredSlot);
             if (pricePerItem > 0) {
-                tooltip.add(Component.literal("Цена: " + pricePerItem + "⛀/шт.").withStyle(ChatFormatting.GOLD));
+                tooltip.add(Component.literal(String.format("Цена: %.2f⛀/шт.", pricePerItem)).withStyle(ChatFormatting.GOLD));
                 if (stack.getCount() > 1) {
-                    long total = pricePerItem * stack.getCount();
-                    tooltip.add(Component.literal("Стоимость: " + total + "⛀").withStyle(ChatFormatting.GRAY));
+                    tooltip.add(Component.literal(String.format("Стоимость: %.2f⛀", pricePerItem * stack.getCount())).withStyle(ChatFormatting.GRAY));
                 }
             }
-
             guiGraphics.renderComponentTooltip(font, tooltip, mouseX, mouseY);
         }
     }
@@ -158,7 +164,6 @@ public class EconomyTradeScreen extends AbstractContainerScreen<EconomyTradeMenu
     @Override
     public void containerTick() {
         super.containerTick();
-
         if (failedAnimationTick > 0) { failedAnimationTick--; if (failedAnimationTick == 0) transactionFailed = false; }
         if (successAnimationTick > 0) { successAnimationTick--; if (successAnimationTick == 0) transactionSuccess = false; }
 
@@ -181,14 +186,10 @@ public class EconomyTradeScreen extends AbstractContainerScreen<EconomyTradeMenu
         } else if (idx >= EconomyTradeMenu.BUY_START && idx <= EconomyTradeMenu.BUY_END) {
             for (int j = 0; j < EconomyTradeMenu.OWNER_SLOTS; j++) {
                 ItemStack ownerStack = menu.slots.get(j).getItem();
-                if (ItemStack.isSameItemSameComponents(ownerStack, stack)) {
-                    return menu.getPrice(j);
-                }
+                if (ItemStack.isSameItemSameComponents(ownerStack, stack)) return menu.getPrice(j);
             }
-            return 0;
-        } else if (idx >= EconomyTradeMenu.SELL_START && idx <= EconomyTradeMenu.SELL_END) {
-            return PriceCalculator.getSellPrice(stack, null);
-        } else if (idx >= EconomyTradeMenu.PLAYER_INV_START && idx <= EconomyTradeMenu.HOTBAR_END) {
+        } else if (idx >= EconomyTradeMenu.SELL_START && idx <= EconomyTradeMenu.SELL_END ||
+                idx >= EconomyTradeMenu.PLAYER_INV_START && idx <= EconomyTradeMenu.HOTBAR_END) {
             return PriceCalculator.getSellPrice(stack, null);
         }
         return 0;
@@ -197,6 +198,7 @@ public class EconomyTradeScreen extends AbstractContainerScreen<EconomyTradeMenu
     @Override
     protected void slotClicked(Slot slot, int slotId, int mouseButton, ClickType type) {
         if (slot == null) { super.slotClicked(null, slotId, mouseButton, type); return; }
+
         if (slotId < EconomyTradeMenu.OWNER_SLOTS) {
             if (slot.hasItem() && (type == ClickType.PICKUP || type == ClickType.QUICK_MOVE)) {
                 PacketDistributor.sendToServer(new ServerboundAddToBuySlotPacket(slotId, type == ClickType.QUICK_MOVE));
@@ -222,9 +224,5 @@ public class EconomyTradeScreen extends AbstractContainerScreen<EconomyTradeMenu
         transactionFailed = true;
         failedAnimationTick = 20;
         transactionSuccess = false;
-    }
-
-    public void refreshData() {
-        this.successAnimationTick = 2;
     }
 }
