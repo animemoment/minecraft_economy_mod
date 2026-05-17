@@ -1,7 +1,10 @@
 package com.economymod.attachment;
 
-import net.minecraft.core.BlockPos;
 import com.economymod.economy.IEconomicActor;
+import com.economymod.economy.desire.Desire;
+import com.economymod.economy.desire.DesireProcessor;
+import com.economymod.economy.PriceCalculator;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
@@ -22,9 +25,11 @@ public class VillagerAttachment implements IEconomicActor {
     private final SimpleContainer inventory = new SimpleContainer(INVENTORY_SIZE);
     private final Villager villager;
     private long budget;
-    private float foodLevel = 20.0f;
     private boolean initialized = false;
     private VillagerProfession lastProfession = VillagerProfession.NONE;
+
+    // Новая система желаний
+    private final DesireProcessor desireProcessor = new DesireProcessor(this);
 
     private List<Demand> cachedDemands = new ArrayList<>();
     private List<Offer> cachedOffers = new ArrayList<>();
@@ -32,58 +37,48 @@ public class VillagerAttachment implements IEconomicActor {
 
     public VillagerAttachment(Villager villager) {
         this.villager = villager;
-        this.budget = villager != null ? 50 + villager.getRandom().nextInt(100) : 50;
+        // Начальный бюджет 100-300 монет
+        this.budget = villager != null ? 100 + villager.getRandom().nextInt(200) : 100;
     }
 
-    private VillagerProfession getCurrentProfession() {
+    public VillagerProfession getProfession() {
         return villager != null ? villager.getVillagerData().getProfession() : VillagerProfession.NONE;
     }
 
-    private void ensureInitialized() {
-        VillagerProfession currentProfession = getCurrentProfession();
+    public void ensureInitialized() {
+        VillagerProfession currentProfession = getProfession();
         if (!initialized || currentProfession != lastProfession) {
             inventory.clearContent();
             if (currentProfession != VillagerProfession.NONE) {
-                fillInventoryByProfession(currentProfession);
+                fillInventoryRandomly(currentProfession);
             }
             lastProfession = currentProfession;
             initialized = true;
         }
     }
 
-    private void fillInventoryByProfession(VillagerProfession prof) {
+    private void fillInventoryRandomly(VillagerProfession prof) {
+        if (villager == null) return;
+        Random random = new Random();
+        List<Item> pool = new ArrayList<>();
+
         if (prof.equals(VillagerProfession.FARMER)) {
-            inventory.setItem(0, new ItemStack(Items.WHEAT_SEEDS, 4));
-            inventory.setItem(1, new ItemStack(Items.BONE_MEAL, 1));
-            inventory.setItem(2, new ItemStack(Items.WOODEN_HOE, 1));
-            inventory.setItem(3, new ItemStack(Items.BREAD, 2));
-        } else if (prof.equals(VillagerProfession.TOOLSMITH)) {
-            inventory.setItem(0, new ItemStack(Items.IRON_INGOT, 3));
-            inventory.setItem(1, new ItemStack(Items.COAL, 2));
-            inventory.setItem(2, new ItemStack(Items.IRON_PICKAXE, 1));
+            pool.addAll(List.of(Items.WHEAT, Items.POTATO, Items.CARROT, Items.BREAD));
+        } else if (prof.equals(VillagerProfession.TOOLSMITH) || prof.equals(VillagerProfession.WEAPONSMITH)) {
+            pool.addAll(List.of(Items.IRON_INGOT, Items.COAL, Items.IRON_AXE, Items.IRON_SWORD));
         } else if (prof.equals(VillagerProfession.LIBRARIAN)) {
-            inventory.setItem(0, new ItemStack(Items.BOOK, 2));
-            inventory.setItem(1, new ItemStack(Items.PAPER, 4));
-        } else if (prof.equals(VillagerProfession.BUTCHER)) {
-            inventory.setItem(0, new ItemStack(Items.BEEF, 3));
-            inventory.setItem(1, new ItemStack(Items.COOKED_BEEF, 1));
-        } else if (prof.equals(VillagerProfession.CLERIC)) {
-            inventory.setItem(0, new ItemStack(Items.GOLD_INGOT, 1));
-            inventory.setItem(1, new ItemStack(Items.REDSTONE, 2));
-        } else if (prof.equals(VillagerProfession.MASON)) {
-            inventory.setItem(0, new ItemStack(Items.CLAY_BALL, 4));
-            inventory.setItem(1, new ItemStack(Items.STONE, 8));
-        } else if (prof.equals(VillagerProfession.WEAPONSMITH)) {
-            inventory.setItem(0, new ItemStack(Items.IRON_INGOT, 2));
-            inventory.setItem(1, new ItemStack(Items.IRON_SWORD, 1));
-            inventory.setItem(2, new ItemStack(Items.COAL, 1));
-        } else if (prof.equals(VillagerProfession.NONE) || prof.equals(VillagerProfession.NITWIT)) {
-            inventory.setItem(0, new ItemStack(Items.WHEAT, 2));
-            inventory.setItem(1, new ItemStack(Items.COAL, 1));
+            pool.addAll(List.of(Items.BOOK, Items.PAPER, Items.FEATHER));
+        } else {
+            pool.addAll(List.of(Items.STICK, Items.APPLE, Items.COBBLESTONE));
+        }
+
+        int count = 2 + random.nextInt(2);
+        for (int i = 0; i < count; i++) {
+            Item item = pool.get(random.nextInt(pool.size()));
+            inventory.addItem(new ItemStack(item, 3 + random.nextInt(7)));
         }
     }
 
-    // ========= IEconomicActor =========
     @Override
     public SimpleContainer getInventory() {
         ensureInitialized();
@@ -91,23 +86,76 @@ public class VillagerAttachment implements IEconomicActor {
     }
 
     @Override
-    public long getBalance() { return budget; }
+    public long getBalance() {
+        return budget;
+    }
 
     @Override
-    public void setBalance(long balance) { this.budget = balance; }
+    public void setBalance(long balance) {
+        this.budget = balance;
+    }
 
     @Override
     public String getActorDisplayName() {
         return villager != null ? villager.getDisplayName().getString() : "Villager";
     }
-    // ==================================
 
-    public VillagerProfession getProfession() {
-        return getCurrentProfession();
+    /**
+     * Преобразует "Умные желания" из DesireProcessor в список Demand для торговли.
+     */
+    public List<Demand> getDemands() {
+        ensureInitialized();
+        if (recalcCooldown > 0) {
+            recalcCooldown--;
+            return cachedDemands;
+        }
+        recalcCooldown = 100; // Пересчет раз в 5 секунд
+
+        cachedDemands.clear();
+        List<Desire> smartDesires = desireProcessor.calculateDesires();
+
+        for (Desire desire : smartDesires) {
+            // Максимальная цена покупки = базовая цена * 1.5 (готов переплатить за нужду)
+            double rawPrice = PriceCalculator.getRawPrice(desire.stack.getItem());
+            int maxPrice = (int) (rawPrice * 1.5);
+            cachedDemands.add(new Demand(desire.stack, Math.max(1, maxPrice)));
+        }
+
+        return cachedDemands;
     }
 
-    public void forceReinitialize() {
-        this.initialized = false;
+    public List<Offer> getOffers() {
+        ensureInitialized();
+        cachedOffers.clear();
+        VillagerProfession prof = getProfession();
+
+        for (int i = 0; i < INVENTORY_SIZE; i++) {
+            ItemStack s = inventory.getItem(i);
+            if (s.isEmpty()) continue;
+
+            boolean isProfessionalItem = isItemRelatedToProfession(s.getItem(), prof);
+
+            // Если предмет НЕ по профессии - продаем всё.
+            // Если предмет ПО профессии - продаем излишки (оставляем себе 2 шт).
+            int keepAmount = isProfessionalItem ? 2 : 0;
+
+            if (s.getCount() > keepAmount) {
+                int price = (int) Math.max(1, PriceCalculator.getRawPrice(s.getItem()));
+                // Цена продажи = 80% от рыночной
+                cachedOffers.add(new Offer(new ItemStack(s.getItem(), s.getCount() - keepAmount), (int)(price * 0.8)));
+            }
+        }
+        return cachedOffers;
+    }
+
+    private boolean isItemRelatedToProfession(Item item, VillagerProfession prof) {
+        if (prof == VillagerProfession.FARMER)
+            return item == Items.WHEAT || item == Items.BREAD || item == Items.CARROT || item == Items.POTATO || item == Items.WHEAT_SEEDS;
+        if (prof == VillagerProfession.TOOLSMITH || prof == VillagerProfession.WEAPONSMITH)
+            return item == Items.IRON_INGOT || item == Items.COAL || item == Items.IRON_PICKAXE || item == Items.IRON_SWORD;
+        if (prof == VillagerProfession.LIBRARIAN)
+            return item == Items.BOOK || item == Items.PAPER || item == Items.FEATHER;
+        return false;
     }
 
     public static class Demand {
@@ -119,102 +167,6 @@ public class VillagerAttachment implements IEconomicActor {
         }
     }
 
-    public double getDesire(ItemStack stack) {
-        Item item = stack.getItem();
-        double necessity = 0.2;
-        double urgency = 0.3;
-        double budgetFactor = 1.0;
-
-        for (Demand d : getDemands()) {
-            if (ItemStack.isSameItemSameComponents(d.stack, stack)) {
-                necessity = 1.0;
-                int currentStock = countItem(item);
-                int desiredStock = d.stack.getCount();
-                urgency = 1.0 - (double) currentStock / Math.max(1, desiredStock);
-                urgency = Math.max(0.1, Math.min(1.0, urgency));
-                long maxPrice = d.maxPricePerItem;
-                long availableBudget = Math.max(0, budget - getTotalDemandCost());
-                budgetFactor = Math.min(1.0, (double) availableBudget / (maxPrice * desiredStock));
-                break;
-            }
-        }
-
-        if (necessity < 1.0 && isItemRelatedToProfession(item)) {
-            necessity = 0.5;
-            urgency = 0.5;
-        }
-
-        return Math.min(1.0, necessity * urgency * budgetFactor);
-    }
-
-    private boolean isItemRelatedToProfession(Item item) {
-        VillagerProfession prof = getCurrentProfession();
-        if (prof == VillagerProfession.FARMER) {
-            return item == Items.WHEAT_SEEDS || item == Items.BONE_MEAL || item == Items.WOODEN_HOE || item == Items.STONE_HOE || item == Items.IRON_HOE || item == Items.BREAD;
-        }
-        if (prof == VillagerProfession.TOOLSMITH) {
-            return item == Items.IRON_INGOT || item == Items.IRON_PICKAXE || item == Items.COAL;
-        }
-        return false;
-    }
-
-    private long getTotalDemandCost() {
-        long total = 0;
-        for (Demand d : cachedDemands) {
-            total += (long) d.stack.getCount() * d.maxPricePerItem;
-        }
-        return total;
-    }
-
-    public List<Demand> getDemands() {
-        ensureInitialized();
-        VillagerProfession currentProfession = getCurrentProfession();
-        if (recalcCooldown > 0) {
-            recalcCooldown--;
-            return cachedDemands;
-        }
-        recalcCooldown = 200;
-        cachedDemands.clear();
-
-        if (foodLevel < 10) {
-            int breadNeeded = Math.max(1, (int) ((20 - foodLevel) / 5));
-            cachedDemands.add(new Demand(new ItemStack(Items.BREAD, breadNeeded), 3));
-        }
-
-        if (currentProfession.equals(VillagerProfession.FARMER)) {
-            int seeds = countItem(Items.WHEAT_SEEDS);
-            if (seeds < 8) cachedDemands.add(new Demand(new ItemStack(Items.WHEAT_SEEDS, 8 - seeds), 2));
-            int bonemeal = countItem(Items.BONE_MEAL);
-            if (bonemeal < 2) cachedDemands.add(new Demand(new ItemStack(Items.BONE_MEAL, 2 - bonemeal), 3));
-            if (!hasItem(Items.WOODEN_HOE) && !hasItem(Items.STONE_HOE) && !hasItem(Items.IRON_HOE))
-                cachedDemands.add(new Demand(new ItemStack(Items.WOODEN_HOE, 1), 5));
-        } else if (currentProfession.equals(VillagerProfession.TOOLSMITH)) {
-            if (!hasItem(Items.IRON_PICKAXE)) cachedDemands.add(new Demand(new ItemStack(Items.IRON_PICKAXE, 1), 20));
-            int iron = countItem(Items.IRON_INGOT);
-            if (iron < 4) cachedDemands.add(new Demand(new ItemStack(Items.IRON_INGOT, 4 - iron), 8));
-        }
-
-        long totalCost = 0;
-        List<Demand> finalDemands = new ArrayList<>();
-        for (Demand d : cachedDemands) {
-            long cost = (long) d.stack.getCount() * d.maxPricePerItem;
-            if (totalCost + cost <= budget * 0.3) {
-                finalDemands.add(d);
-                totalCost += cost;
-            } else if (totalCost < budget * 0.3) {
-                int remaining = (int) ((budget * 0.3 - totalCost) / d.maxPricePerItem);
-                if (remaining > 0) {
-                    ItemStack reduced = d.stack.copy();
-                    reduced.setCount(remaining);
-                    finalDemands.add(new Demand(reduced, d.maxPricePerItem));
-                    totalCost += (long) remaining * d.maxPricePerItem;
-                }
-            }
-        }
-        cachedDemands = finalDemands;
-        return cachedDemands;
-    }
-
     public static class Offer {
         public final ItemStack stack;
         public final int minPricePerItem;
@@ -224,71 +176,10 @@ public class VillagerAttachment implements IEconomicActor {
         }
     }
 
-    public List<Offer> getOffers() {
-        ensureInitialized();
-        if (recalcCooldown > 0) return cachedOffers;
-        cachedOffers.clear();
-        Map<Item, Integer> minStock = getMinimumStock();
-        for (int i = 0; i < INVENTORY_SIZE; i++) {
-            ItemStack stack = inventory.getItem(i);
-            if (stack.isEmpty()) continue;
-            Item item = stack.getItem();
-            int min = minStock.getOrDefault(item, 0);
-            if (stack.getCount() > min) {
-                int amountToSell = stack.getCount() - min;
-                double surplusFactor = (double) amountToSell / (min + 1);
-                double sellFactor = Math.max(0.5, 1.0 - surplusFactor * 0.3);
-                int basePrice = getBasePrice(item);
-                int minPrice = (int) (basePrice * sellFactor);
-                cachedOffers.add(new Offer(new ItemStack(item, amountToSell), minPrice));
-            }
-        }
-        recalcCooldown = 200;
-        return cachedOffers;
-    }
-
-    private int getBasePrice(Item item) {
-        if (item == Items.BREAD) return 1;
-        if (item == Items.WHEAT_SEEDS) return 1;
-        if (item == Items.BONE_MEAL) return 1;
-        if (item == Items.COAL) return 1;
-        if (item == Items.IRON_INGOT) return 4;
-        if (item == Items.IRON_PICKAXE) return 12;
-        if (item == Items.BOOK) return 5;
-        if (item == Items.PAPER) return 1;
-        if (item == Items.BEEF) return 2;
-        if (item == Items.GOLD_INGOT) return 8;
-        if (item == Items.REDSTONE) return 3;
-        if (item == Items.CLAY_BALL) return 1;
-        if (item == Items.STONE) return 1;
-        if (item == Items.IRON_SWORD) return 15;
-        return 1;
-    }
-
-    private int countItem(Item item) {
-        int count = 0;
-        for (int i = 0; i < INVENTORY_SIZE; i++) if (inventory.getItem(i).is(item)) count += inventory.getItem(i).getCount();
-        return count;
-    }
-
-    private boolean hasItem(Item item) {
-        for (int i = 0; i < INVENTORY_SIZE; i++) if (inventory.getItem(i).is(item)) return true;
-        return false;
-    }
-
-    private Map<Item, Integer> getMinimumStock() {
-        Map<Item, Integer> map = new HashMap<>();
-        VillagerProfession prof = getCurrentProfession();
-        if (prof.equals(VillagerProfession.FARMER)) { map.put(Items.WHEAT_SEEDS, 4); map.put(Items.BREAD, 2); }
-        else if (prof.equals(VillagerProfession.TOOLSMITH)) { map.put(Items.IRON_INGOT, 2); map.put(Items.IRON_PICKAXE, 1); }
-        return map;
-    }
-
     // ==================== СЕРИАЛИЗАЦИЯ ====================
     public CompoundTag serializeNBT(HolderLookup.Provider provider) {
         CompoundTag tag = new CompoundTag();
         tag.putLong("Budget", budget);
-        tag.putFloat("FoodLevel", foodLevel);
         tag.putBoolean("Initialized", initialized);
         tag.putString("LastProfession", BuiltInRegistries.VILLAGER_PROFESSION.getKey(lastProfession).toString());
         ListTag invList = new ListTag();
@@ -305,26 +196,11 @@ public class VillagerAttachment implements IEconomicActor {
         return tag;
     }
 
-    @Override
-    public boolean wantsToBuy(ItemStack stack) {
-        for (Demand demand : getDemands()) {
-            if (ItemStack.isSameItemSameComponents(demand.stack, stack)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    @Override
-    public BlockPos getPosition() {
-        return villager != null ? villager.blockPosition() : null;
-    }
-
     public void deserializeNBT(HolderLookup.Provider provider, CompoundTag tag) {
         budget = tag.getLong("Budget");
-        foodLevel = tag.getFloat("FoodLevel");
         initialized = tag.getBoolean("Initialized");
-        lastProfession = BuiltInRegistries.VILLAGER_PROFESSION.get(ResourceLocation.parse(tag.getString("LastProfession")));
+        String profKey = tag.getString("LastProfession");
+        lastProfession = BuiltInRegistries.VILLAGER_PROFESSION.get(ResourceLocation.parse(profKey));
         if (lastProfession == null) lastProfession = VillagerProfession.NONE;
         inventory.clearContent();
         ListTag invList = tag.getList("Inventory", Tag.TAG_COMPOUND);
@@ -332,9 +208,25 @@ public class VillagerAttachment implements IEconomicActor {
             CompoundTag slotTag = invList.getCompound(i);
             int slot = slotTag.getInt("Slot");
             if (slot >= 0 && slot < INVENTORY_SIZE) {
-                ItemStack stack = ItemStack.parse(provider, slotTag).orElse(ItemStack.EMPTY);
-                inventory.setItem(slot, stack);
+                inventory.setItem(slot, ItemStack.parse(provider, slotTag).orElse(ItemStack.EMPTY));
             }
         }
+    }
+
+    public void forceReinitialize() {
+        this.initialized = false;
+    }
+
+    @Override
+    public boolean wantsToBuy(ItemStack stack) {
+        for (Demand demand : getDemands()) {
+            if (ItemStack.isSameItemSameComponents(demand.stack, stack)) return true;
+        }
+        return false;
+    }
+
+    @Override
+    public BlockPos getPosition() {
+        return villager != null ? villager.blockPosition() : null;
     }
 }

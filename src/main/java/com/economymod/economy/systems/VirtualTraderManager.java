@@ -29,7 +29,7 @@ public class VirtualTraderManager {
             var entry = it.next().getValue();
             if (level.getGameTime() >= entry.arrivalTime && level.isLoaded(entry.target)) {
                 // Убедись, что ID сущности в EntityType правильный
-                EconomyTraderEntity trader = (EconomyTraderEntity) EntityType.byString("economymod:trader").get().create(level);
+                EconomyTraderEntity trader = (EconomyTraderEntity) EntityType.byString("economymod:economy_trader").get().create(level);
                 if (trader != null) {
                     trader.load(entry.data);
                     trader.setPos(entry.target.getX(), entry.target.getY(), entry.target.getZ());

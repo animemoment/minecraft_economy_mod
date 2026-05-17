@@ -48,7 +48,7 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
     private BlockPos currentBazaar;
     public long lastTravelTime = 0;
     private boolean pricesNeedRecalc = true;
-    private long lastTradeTick = 0; // НОВОЕ: Кулдаун для оптимизации
+    private long lastTradeTick = 0;
 
     public EconomyTraderEntity(EntityType<? extends AbstractVillager> type, Level level) {
         super(type, level);
@@ -183,153 +183,94 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
     }
 
     public void arriveAtVillage(BlockPos bazaarPos) {
+        if (bazaarPos == null) return;
         this.currentBazaar = bazaarPos;
-        updateCurrentBazaar();
         if (PriceCalculator.isPriceTableReady()) tradeWithVillage();
     }
 
     public void tradeWithVillage() {
         if (!PriceCalculator.isPriceTableReady()) return;
         if (currentBazaar == null) return;
-
-        // ОПТИМИЗАЦИЯ: Торговец проверяет сделки только раз в 5 секунд (100 тиков)
         if (this.level().getGameTime() - lastTradeTick < 100) return;
         lastTradeTick = this.level().getGameTime();
-
         tradeWithVillagers();
     }
 
     public void tradeWithVillagers() {
         if (!(level() instanceof ServerLevel serverLevel) || currentBazaar == null) return;
 
-        // ОПТИМИЗАЦИЯ: Если торговец пуст и без денег, ему нечего делать
-        if (this.budget <= 0 && countNonEmptySlots(this.inventory) == 0) return;
-
         VillageNetworkData data = VillageNetworkData.get(serverLevel);
         VillageNetworkData.VillageInfo info = data.getVillageInfo(currentBazaar);
         if (info == null) return;
 
-        // ОПТИМИЗАЦИЯ: Ищем только живых жителей
+        if (this.budget <= 0 && countNonEmptySlots(this.inventory) == 0) return;
+
         List<Villager> villagers = level().getEntitiesOfClass(Villager.class,
                 new AABB(currentBazaar).inflate(48), LivingEntity::isAlive);
 
         if (villagers.isEmpty()) return;
-        EconomyMod.LOGGER.info("=== Trader {} trading with {} villagers at {} ===", this.getId(), villagers.size(), currentBazaar);
 
-        Map<Item, Integer> totalDemand = new HashMap<>();
-        Map<Item, Integer> totalSupply = new HashMap<>();
-        int population = villagers.size();
+        boolean tradeHappened = false;
 
         for (Villager villager : villagers) {
-            VillagerAttachment attachment = villager.getData(ModAttachments.VILLAGER.get());
-            attachment.forceReinitialize();
-            if (attachment.getProfession() == net.minecraft.world.entity.npc.VillagerProfession.NONE) continue;
+            var att = villager.getData(ModAttachments.VILLAGER.get());
+            if (att.getProfession() == net.minecraft.world.entity.npc.VillagerProfession.NONE) continue;
 
-            List<VillagerAttachment.Demand> demands = attachment.getDemands();
-            for (VillagerAttachment.Demand d : demands) {
+            for (VillagerAttachment.Demand d : att.getDemands()) {
                 for (int i = 0; i < inventory.getContainerSize(); i++) {
                     ItemStack sellerStack = inventory.getItem(i);
                     if (!sellerStack.isEmpty() && ItemStack.isSameItemSameComponents(sellerStack, d.stack)) {
                         int amount = Math.min(sellerStack.getCount(), d.stack.getCount());
                         long pricePerItem = PriceCalculator.getBuyPrice(new ItemStack(d.stack.getItem()), info);
+
                         if (pricePerItem <= d.maxPricePerItem) {
                             long totalPrice = pricePerItem * amount;
-                            if (attachment.getBalance() >= totalPrice) {
+                            if (att.getBalance() >= totalPrice) {
                                 sellerStack.shrink(amount);
-                                attachment.setBalance(attachment.getBalance() - totalPrice);
+                                att.setBalance(att.getBalance() - totalPrice);
                                 this.budget += totalPrice;
-                                ItemStack given = d.stack.copy();
-                                given.setCount(amount);
-                                for (int j = 0; j < VillagerAttachment.INVENTORY_SIZE; j++) {
-                                    ItemStack vs = attachment.getInventory().getItem(j);
-                                    if (vs.isEmpty()) { attachment.getInventory().setItem(j, given); break; }
-                                    else if (ItemStack.isSameItemSameComponents(vs, given) && vs.getCount() < 64) {
-                                        int add = Math.min(64 - vs.getCount(), given.getCount());
-                                        vs.grow(add); given.shrink(add);
-                                        if (given.isEmpty()) break;
-                                    }
-                                }
-                                totalDemand.merge(d.stack.getItem(), amount, Integer::sum);
+                                att.getInventory().addItem(new ItemStack(d.stack.getItem(), amount));
+                                info.recordTrade(d.stack.getItem(), amount);
+                                tradeHappened = true;
                                 break;
                             }
                         }
                     }
                 }
             }
-            List<VillagerAttachment.Offer> offers = attachment.getOffers();
-            for (VillagerAttachment.Offer o : offers) totalSupply.merge(o.stack.getItem(), o.stack.getCount(), Integer::sum);
-        }
 
-        for (Villager villager : villagers) {
-            VillagerAttachment attachment = villager.getData(ModAttachments.VILLAGER.get());
-            if (attachment.getProfession() == net.minecraft.world.entity.npc.VillagerProfession.NONE) continue;
-            List<VillagerAttachment.Offer> offers = attachment.getOffers();
-            for (VillagerAttachment.Offer o : offers) {
-                long bestPrice = 0;
-                for (VillageNetworkData.VillageInfo other : data.getAllVillages()) {
-                    if (other == info) continue;
-                    long priceThere = PriceCalculator.getBuyPrice(o.stack, other);
-                    if (priceThere > bestPrice) bestPrice = priceThere;
-                }
-                long profit = bestPrice - o.minPricePerItem;
-                if (profit > o.minPricePerItem * 0.2 && this.budget >= o.minPricePerItem) {
-                    int maxAfford = (int) (this.budget / o.minPricePerItem);
+            for (VillagerAttachment.Offer o : att.getOffers()) {
+                long priceHere = PriceCalculator.getSellPrice(o.stack, info);
+                if (priceHere < PriceCalculator.getRawPrice(o.stack.getItem()) && this.budget >= priceHere) {
+                    int maxAfford = (int) (this.budget / priceHere);
                     int amountToBuy = Math.min(o.stack.getCount(), maxAfford);
-                    int freeSlots = 0;
-                    for (int i = 0; i < 36; i++) {
-                        ItemStack s = inventory.getItem(i);
-                        if (s.isEmpty()) freeSlots += 64;
-                        else if (ItemStack.isSameItemSameComponents(s, o.stack)) freeSlots += (64 - s.getCount());
-                    }
-                    amountToBuy = Math.min(amountToBuy, freeSlots);
+
                     if (amountToBuy > 0) {
                         int remaining = amountToBuy;
                         for (int i = 0; i < VillagerAttachment.INVENTORY_SIZE && remaining > 0; i++) {
-                            ItemStack vs = attachment.getInventory().getItem(i);
+                            ItemStack vs = att.getInventory().getItem(i);
                             if (ItemStack.isSameItemSameComponents(vs, o.stack)) {
                                 int take = Math.min(remaining, vs.getCount());
-                                vs.shrink(take); remaining -= take;
+                                vs.shrink(take);
+                                remaining -= take;
                             }
                         }
-                        ItemStack bought = o.stack.copy();
-                        bought.setCount(amountToBuy);
-                        for (int i = 0; i < 36; i++) {
-                            ItemStack s = inventory.getItem(i);
-                            if (s.isEmpty()) { inventory.setItem(i, bought); break; }
-                            else if (ItemStack.isSameItemSameComponents(s, bought)) {
-                                int add = Math.min(64 - s.getCount(), bought.getCount());
-                                s.grow(add); bought.shrink(add);
-                                if (bought.isEmpty()) break;
-                            }
-                        }
-                        long totalCost = (long) amountToBuy * o.minPricePerItem;
-                        attachment.setBalance(attachment.getBalance() + totalCost);
+
+                        long totalCost = (long) amountToBuy * priceHere;
+                        att.setBalance(att.getBalance() + totalCost);
                         this.budget -= totalCost;
+                        this.inventory.addItem(new ItemStack(o.stack.getItem(), amountToBuy));
+                        info.recordTrade(o.stack.getItem(), amountToBuy);
+                        tradeHappened = true;
                     }
                 }
             }
         }
 
-        info.recalcFactors(totalDemand, totalSupply, population);
-        info.setInflationRate(info.getInflationRate() + 0.001);
-        data.setDirty();
-        syncInventoryToClients();
-
-        if (currentBazaar != null) {
-            Map<Integer, Long> newPrices = new HashMap<>();
-            for (int i = 0; i < 36; i++) {
-                ItemStack stack = inventory.getItem(i);
-                if (!stack.isEmpty()) {
-                    long price = PriceCalculator.calculateDynamicPrice(stack, info);
-                    newPrices.put(i, price);
-                }
-            }
-            ClientboundPriceUpdatePacket pricePacket = new ClientboundPriceUpdatePacket(newPrices);
-            for (Player player : level().players()) {
-                if (player instanceof ServerPlayer sp && sp.containerMenu instanceof EconomyTradeMenu menu && menu.getOwnerActor() == this) {
-                    PacketDistributor.sendToPlayer(sp, pricePacket);
-                }
-            }
+        if (tradeHappened) {
+            data.setDirty();
+            syncInventoryToClients();
+            EconomyMod.LOGGER.info("Trader {} completed trades at {}", this.getId(), currentBazaar);
         }
     }
 

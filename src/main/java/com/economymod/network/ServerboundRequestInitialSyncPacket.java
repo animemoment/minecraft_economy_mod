@@ -1,7 +1,7 @@
 package com.economymod.network;
 
+import com.economymod.EconomyMod;
 import com.economymod.economy.IEconomicActor;
-import com.economymod.economy.PriceCalculator;
 import com.economymod.gui.menu.EconomyTradeMenu;
 import com.economymod.registry.ModAttachments;
 import io.netty.buffer.ByteBuf;
@@ -12,6 +12,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
+import net.minecraft.core.registries.BuiltInRegistries;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -19,17 +20,10 @@ import java.util.List;
 import java.util.Map;
 
 public record ServerboundRequestInitialSyncPacket() implements CustomPacketPayload {
+    public static final Type<ServerboundRequestInitialSyncPacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath("economymod", "request_initial_sync"));
+    public static final StreamCodec<ByteBuf, ServerboundRequestInitialSyncPacket> STREAM_CODEC = StreamCodec.unit(new ServerboundRequestInitialSyncPacket());
 
-    public static final Type<ServerboundRequestInitialSyncPacket> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath("economymod", "request_initial_sync"));
-
-    public static final StreamCodec<ByteBuf, ServerboundRequestInitialSyncPacket> STREAM_CODEC =
-            StreamCodec.unit(new ServerboundRequestInitialSyncPacket());
-
-    @Override
-    public Type<? extends CustomPacketPayload> type() {
-        return TYPE;
-    }
+    @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
 
     public static void handleServer(final ServerboundRequestInitialSyncPacket packet, final IPayloadContext context) {
         context.enqueueWork(() -> {
@@ -39,28 +33,27 @@ public record ServerboundRequestInitialSyncPacket() implements CustomPacketPaylo
             IEconomicActor owner = menu.getOwnerActor();
             if (owner == null) return;
 
-            // Балансы
-            long balance = sp.getData(ModAttachments.PLAYER_ECONOMY.get()).getBalance();
-            long budget = owner.getBalance();
-            PacketDistributor.sendToPlayer(sp, new ClientboundBalanceSyncPacket(balance, budget));
+            // 1. Балансы
+            PacketDistributor.sendToPlayer(sp, new ClientboundBalanceSyncPacket(
+                    sp.getData(ModAttachments.PLAYER_ECONOMY.get()).getBalance(),
+                    owner.getBalance()
+            ));
 
-            // Инвентарь владельца
+            // 2. Инвентарь
             List<ItemStack> items = new ArrayList<>();
-            for (int i = 0; i < 36; i++) {
-                items.add(owner.getInventory().getItem(i).copy());
-            }
-            PacketDistributor.sendToPlayer(sp, new ClientboundOwnerInventorySyncPacket(items, budget));
+            for (int i = 0; i < 36; i++) items.add(owner.getInventory().getItem(i).copy());
+            PacketDistributor.sendToPlayer(sp, new ClientboundOwnerInventorySyncPacket(items, owner.getBalance()));
 
-            // === НОВОЕ: расчёт и отправка динамических цен ===
-            Map<Integer, Long> prices = new HashMap<>();
-            for (int i = 0; i < 36; i++) {
-                ItemStack stack = owner.getInventory().getItem(i);
-                if (!stack.isEmpty()) {
-                    long price = PriceCalculator.getBuyPrice(stack, null);
-                    prices.put(i, price);
-                }
+            // 3. Таблица цен
+            var manager = EconomyMod.getEconomyManager();
+            if (manager != null && manager.getPriceTable() != null) {
+                Map<String, Long> priceTableStrings = new HashMap<>();
+                // Используем добавленный метод getAllPrices()
+                manager.getPriceTable().getAllPrices().forEach((item, price) -> {
+                    priceTableStrings.put(BuiltInRegistries.ITEM.getKey(item).toString(), (long)(price * 100));
+                });
+                PacketDistributor.sendToPlayer(sp, new ClientboundFullPriceTablePacket(priceTableStrings));
             }
-            PacketDistributor.sendToPlayer(sp, new ClientboundPriceUpdatePacket(prices));
         });
     }
 }

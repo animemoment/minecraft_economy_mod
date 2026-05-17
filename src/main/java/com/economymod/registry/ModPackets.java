@@ -6,9 +6,9 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
-import com.economymod.network.ClientboundFullPriceTablePacket;
 
-@EventBusSubscriber(modid = EconomyMod.MODID, bus = EventBusSubscriber.Bus.MOD)
+// Исправлено: убраны устаревшие параметры bus
+@EventBusSubscriber(modid = EconomyMod.MODID)
 public class ModPackets {
 
     @SubscribeEvent
@@ -26,11 +26,6 @@ public class ModPackets {
                 ServerboundRemoveFromBuySlotPacket.STREAM_CODEC,
                 ServerboundRemoveFromBuySlotPacket::handleServer
         );
-        registrar.playToClient(
-                ClientboundSellContainerSyncPacket.TYPE,
-                ClientboundSellContainerSyncPacket.STREAM_CODEC,
-                ClientboundSellContainerSyncPacket::handleClient
-        );
         registrar.playToServer(
                 ServerboundProcessTransactionPacket.TYPE,
                 ServerboundProcessTransactionPacket.STREAM_CODEC,
@@ -45,6 +40,11 @@ public class ModPackets {
                 ServerboundClearBasketsPacket.TYPE,
                 ServerboundClearBasketsPacket.STREAM_CODEC,
                 ServerboundClearBasketsPacket::handleServer
+        );
+        registrar.playToServer(
+                ServerboundCustomOfferPacket.TYPE,
+                ServerboundCustomOfferPacket.STREAM_CODEC,
+                ServerboundCustomOfferPacket::handle
         );
 
         // Client-bound packets
@@ -77,6 +77,11 @@ public class ModPackets {
                 ClientboundPriceUpdatePacket.TYPE,
                 ClientboundPriceUpdatePacket.STREAM_CODEC,
                 ClientboundPriceUpdatePacket::handleClient
+        );
+        registrar.playToClient(
+                ClientboundSellContainerSyncPacket.TYPE,
+                ClientboundSellContainerSyncPacket.STREAM_CODEC,
+                ClientboundSellContainerSyncPacket::handleClient
         );
     }
 }

@@ -36,9 +36,6 @@ public record ClientboundOwnerInventorySyncPacket(List<ItemStack> inventory, lon
             var player = Minecraft.getInstance().player;
             if (player != null && player.containerMenu instanceof EconomyTradeMenu menu) {
                 menu.updateFromServer(packet.inventory(), packet.budget());
-                if (Minecraft.getInstance().screen instanceof EconomyTradeScreen screen) {
-                    screen.refreshData();
-                }
             }
         });
     }

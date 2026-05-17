@@ -34,15 +34,20 @@ public record ClientboundFullPriceTablePacket(Map<String, Long> priceTable) impl
 
     public static void handleClient(final ClientboundFullPriceTablePacket packet, final IPayloadContext context) {
         context.enqueueWork(() -> {
-            Map<Item, Long> table = new HashMap<>();
+            Map<Item, Double> table = new HashMap<>();
             for (Map.Entry<String, Long> entry : packet.priceTable().entrySet()) {
-                Item item = BuiltInRegistries.ITEM.get(ResourceLocation.parse(entry.getKey()));
-                if (item != null) {
-                    table.put(item, entry.getValue());
+                Item item = net.minecraft.core.registries.BuiltInRegistries.ITEM.get(net.minecraft.resources.ResourceLocation.parse(entry.getKey()));
+                if (item != net.minecraft.world.item.Items.AIR) {
+                    // Делим на 100.0, чтобы вернуть дробную цену
+                    table.put(item, entry.getValue() / 100.0);
                 }
             }
-            PriceCalculator.setClientPriceTable(table);
-            EconomyMod.LOGGER.info("Client received full price table with {} items", table.size());
+            com.economymod.economy.PriceCalculator.setClientPriceTable(table);
+
+            // СРАЗУ обновляем GUI после получения цен
+            if (net.minecraft.client.Minecraft.getInstance().player.containerMenu instanceof com.economymod.gui.menu.EconomyTradeMenu menu) {
+                menu.refreshPrices();
+            }
         });
     }
 }

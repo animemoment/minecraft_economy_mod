@@ -1,33 +1,33 @@
 package com.economymod.event;
 
 import com.economymod.EconomyMod;
-import com.economymod.economy.ItemPriceTable;
-import com.economymod.economy.PriceCalculator;
+import com.economymod.economy.EconomyManager;
 import net.minecraft.server.level.ServerLevel;
 import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
-import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 
-@EventBusSubscriber(modid = EconomyMod.MODID)
 public class ServerEvents {
 
-    private static int priceUpdateCounter = 0;
-    private static boolean tableBuilt = false;
+    @SubscribeEvent
+    public static void onServerStarted(ServerStartedEvent event) {
+        // Получаем главный мир (Overworld)
+        ServerLevel overworld = event.getServer().overworld();
+
+        // Создаем EconomyManager.
+        // Внутри его конструктора автоматически создастся ItemPriceTable (кэш цен).
+        EconomyManager manager = new EconomyManager(overworld);
+
+        // Сохраняем менеджер в главном классе мода
+        EconomyMod.setEconomyManager(manager);
+
+        EconomyMod.LOGGER.info("ServerEvents: EconomyManager успешно инициализирован.");
+    }
 
     @SubscribeEvent
-    public static void onServerTick(ServerTickEvent.Post event) {
-        priceUpdateCounter++;
-        if (priceUpdateCounter >= 100) {
-            priceUpdateCounter = 0;
-        }
-        // Построим таблицу на первом тике, когда сервер точно загружен
-        if (!tableBuilt && event.getServer().getLevel(ServerLevel.OVERWORLD) != null) {
-            ServerLevel overworld = event.getServer().getLevel(ServerLevel.OVERWORLD);
-            ItemPriceTable table = new ItemPriceTable(event.getServer().getRecipeManager(), overworld);
-            PriceCalculator.setPriceTable(table);
-            tableBuilt = true;
-            EconomyMod.LOGGER.info("ItemPriceTable built on first tick");
-        }
+    public static void onServerStopping(ServerStoppingEvent event) {
+        // Очищаем менеджер при остановке сервера, чтобы избежать утечек памяти
+        EconomyMod.setEconomyManager(null);
+        EconomyMod.LOGGER.info("ServerEvents: EconomyManager выгружен.");
     }
 }

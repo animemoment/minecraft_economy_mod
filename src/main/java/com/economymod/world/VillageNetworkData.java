@@ -9,6 +9,7 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
@@ -30,6 +31,7 @@ public class VillageNetworkData extends SavedData {
     }
 
     public VillageInfo getVillageInfo(BlockPos pos) {
+        if (pos == null) return null;
         return villages.computeIfAbsent(pos, VillageInfo::new);
     }
 
@@ -52,7 +54,6 @@ public class VillageNetworkData extends SavedData {
         public VillageInfo(BlockPos center) { this.center = center; }
         public BlockPos getCenter() { return center; }
 
-        // Геттеры для WorldEconomySavedData (Шаг 4)
         public Set<Item> getActiveItems() {
             Set<Item> items = new HashSet<>();
             items.addAll(demandFactors.keySet());
@@ -64,35 +65,32 @@ public class VillageNetworkData extends SavedData {
             dailyTradeVolume.merge(item, amount, Integer::sum);
         }
 
+        public void updateDailyEconomy() {
+            dailyTradeVolume.forEach((item, volume) -> {
+                double currentDemand = demandFactors.getOrDefault(item, 1.0);
+                if (volume > 10) {
+                    demandFactors.put(item, Math.min(5.0, currentDemand * 1.1));
+                } else if (volume < 2) {
+                    demandFactors.put(item, Math.max(0.5, currentDemand * 0.95));
+                }
+            });
+            dailyTradeVolume.clear();
+        }
+
         public double getInflationRate() { return inflationRate; }
-        public void setInflationRate(double rate) { this.inflationRate = Math.clamp(rate, 0.1, 10.0); }
+        public void setInflationRate(double rate) { this.inflationRate = Mth.clamp(rate, 0.1, 10.0); }
 
         public double getSupplyDemandFactor(Item item) {
             double demand = demandFactors.getOrDefault(item, 1.0);
             double supply = supplyFactors.getOrDefault(item, 1.0);
-            return Math.clamp(demand / Math.max(0.1, supply), 0.1, 5.0);
-        }
-
-        // ОПТИМИЗИРОВАНО: Плавная логарифмическая математика
-        public void recalcFactors(Map<Item, Integer> totalDemand, Map<Item, Integer> totalSupply, int population) {
-            double popBase = Math.max(1.0, population * 5.0);
-            demandFactors.clear();
-            supplyFactors.clear();
-
-            totalDemand.forEach((item, dem) -> {
-                double factor = 1.0 + Math.log10(1.0 + (double) dem / popBase);
-                demandFactors.put(item, Math.clamp(factor, 0.5, 3.0));
-            });
-
-            totalSupply.forEach((item, sup) -> {
-                double factor = 1.0 - (Math.log10(1.0 + (double) sup / popBase) * 0.5);
-                supplyFactors.put(item, Math.clamp(factor, 0.2, 1.0));
-            });
+            return Mth.clamp(demand / Math.max(0.1, supply), 0.1, 5.0);
         }
 
         public void recalcFactors(Level level) {
+            if (center == null) return;
             if (level.getGameTime() - lastRecalcTick < 200) return;
             lastRecalcTick = level.getGameTime();
+
             List<Villager> villagers = level.getEntitiesOfClass(Villager.class, new AABB(center).inflate(64.0));
             if (villagers.isEmpty()) return;
 
@@ -104,12 +102,28 @@ public class VillageNetworkData extends SavedData {
                 att.getDemands().forEach(d -> totalDemand.merge(d.stack.getItem(), d.stack.getCount(), Integer::sum));
                 att.getOffers().forEach(o -> totalSupply.merge(o.stack.getItem(), o.stack.getCount(), Integer::sum));
             }
-            recalcFactors(totalDemand, totalSupply, villagers.size());
+            applyMathRecalc(totalDemand, totalSupply, villagers.size());
+        }
+
+        private void applyMathRecalc(Map<Item, Integer> totalDemand, Map<Item, Integer> totalSupply, int population) {
+            double popBase = Math.max(1.0, population * 5.0);
+            demandFactors.clear();
+            supplyFactors.clear();
+
+            totalDemand.forEach((item, dem) -> {
+                double factor = 1.0 + Math.log10(1.0 + (double) dem / popBase);
+                demandFactors.put(item, Mth.clamp((double) factor, 0.5, 3.0));
+            });
+
+            totalSupply.forEach((item, sup) -> {
+                double factor = 1.0 - (Math.log10(1.0 + (double) sup / popBase) * 0.5);
+                supplyFactors.put(item, Mth.clamp((double) factor, 0.2, 1.0));
+            });
         }
 
         public CompoundTag toNBT() {
             CompoundTag tag = new CompoundTag();
-            tag.putLong("Center", center.asLong());
+            if (center != null) tag.putLong("Center", center.asLong());
             tag.putDouble("InflationRate", inflationRate);
             CompoundTag dem = new CompoundTag();
             demandFactors.forEach((i, v) -> dem.putDouble(BuiltInRegistries.ITEM.getKey(i).toString(), v));

@@ -1,17 +1,19 @@
 package com.economymod.entity.ai;
 
+import com.economymod.economy.systems.VirtualTraderManager;
 import com.economymod.entity.EconomyTraderEntity;
 import com.economymod.world.VillageNetworkData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.ai.goal.Goal;
-import net.minecraft.world.entity.ai.navigation.PathNavigation;
-import java.util.*;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 
 public class TravelToVillageGoal extends Goal {
     private final EconomyTraderEntity trader;
-    private BlockPos targetBazaar;
-    private int cooldown = 0;
+    private long lastCheckTime;
 
     public TravelToVillageGoal(EconomyTraderEntity trader) {
         this.trader = trader;
@@ -19,40 +21,38 @@ public class TravelToVillageGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        if (cooldown > 0) {
-            cooldown--;
-            return false;
-        }
-        if (!(trader.level() instanceof ServerLevel serverLevel)) return false;
-        VillageNetworkData data = VillageNetworkData.get(serverLevel);
-        BlockPos currentBazaar = trader.getCurrentBazaar();
-        Set<BlockPos> villages = data.getAllVillagePositions();
-        villages.remove(currentBazaar);
-        if (villages.isEmpty()) return false;
-        // Выбираем случайную деревню
-        targetBazaar = villages.stream().skip(new Random().nextInt(villages.size())).findFirst().orElse(null);
-        return targetBazaar != null;
+        if (!(trader.level() instanceof ServerLevel level)) return false;
+
+        // Проверяем желание уйти раз в 10 секунд (200 тиков)
+        if (level.getGameTime() - lastCheckTime < 200) return false;
+        lastCheckTime = level.getGameTime();
+
+        // Торговец решает уйти, если у него много денег (закупился/продался)
+        // ИЛИ просто с шансом 1 к 20 (чтобы не стоял вечно)
+        return trader.budget > 2000 || trader.getRandom().nextInt(20) == 0;
     }
 
     @Override
     public void start() {
-        if (targetBazaar != null) {
-            PathNavigation nav = trader.getNavigation();
-            nav.moveTo(targetBazaar.getX() + 0.5, targetBazaar.getY(), targetBazaar.getZ() + 0.5, 0.6);
-        }
-    }
+        if (!(trader.level() instanceof ServerLevel level)) return;
 
-    @Override
-    public boolean canContinueToUse() {
-        return targetBazaar != null && !trader.getNavigation().isDone();
-    }
+        VillageNetworkData data = VillageNetworkData.get(level);
+        Set<BlockPos> villages = data.getAllVillagePositions();
 
-    @Override
-    public void stop() {
-        if (targetBazaar != null && trader.blockPosition().distSqr(targetBazaar) < 4) {
-            trader.arriveAtVillage(targetBazaar);
-            cooldown = 600; // 30 секунд перед следующим путешествием
+        // Если в мире известна только 1 деревня (текущая), идти некуда
+        if (villages.size() <= 1) return;
+
+        List<BlockPos> targets = new ArrayList<>(villages);
+        targets.remove(trader.getCurrentBazaar()); // Удаляем текущую деревню из списка целей
+
+        if (!targets.isEmpty()) {
+            // Выбираем случайную другую деревню
+            BlockPos destination = targets.get(trader.getRandom().nextInt(targets.size()));
+
+            com.economymod.EconomyMod.LOGGER.info("Торговец {} отправляется в деревню {}", trader.getId(), destination);
+
+            // Запускаем виртуальное путешествие (сущность исчезнет и появится там)
+            VirtualTraderManager.startJourney(trader, destination);
         }
-        targetBazaar = null;
     }
 }
