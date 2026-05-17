@@ -28,6 +28,11 @@ public class VillagerP2PTradeGoal extends Goal {
     @Override
     public boolean canUse() {
         if (cooldown > 0) { cooldown--; return false; }
+
+        // КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: проверяем, есть ли желания
+        var att = villager.getData(ModAttachments.VILLAGER.get());
+        if (att == null || att.getDemands().isEmpty()) return false;
+
         if (villager.level().getGameTime() % 40 != 0) return false;
 
         List<Villager> neighbors = villager.level().getEntitiesOfClass(

@@ -25,162 +25,143 @@ public class VillagerAttachment implements IEconomicActor {
     private final SimpleContainer inventory = new SimpleContainer(INVENTORY_SIZE);
     private final Villager villager;
     private long budget;
-    private boolean initialized = false;
+    private boolean wasLootGenerated = false;
     private VillagerProfession lastProfession = VillagerProfession.NONE;
 
-    // Новая система желаний
     private final DesireProcessor desireProcessor = new DesireProcessor(this);
-
     private List<Demand> cachedDemands = new ArrayList<>();
     private List<Offer> cachedOffers = new ArrayList<>();
     private int recalcCooldown = 0;
 
     public VillagerAttachment(Villager villager) {
         this.villager = villager;
-        // Начальный бюджет 100-300 монет
-        this.budget = villager != null ? 100 + villager.getRandom().nextInt(200) : 100;
+        this.budget = villager != null ? 50 + villager.getRandom().nextInt(150) : 100;
     }
 
     public VillagerProfession getProfession() {
         return villager != null ? villager.getVillagerData().getProfession() : VillagerProfession.NONE;
     }
 
-    public void ensureInitialized() {
-        VillagerProfession currentProfession = getProfession();
-        if (!initialized || currentProfession != lastProfession) {
-            inventory.clearContent();
-            if (currentProfession != VillagerProfession.NONE) {
-                fillInventoryRandomly(currentProfession);
-            }
-            lastProfession = currentProfession;
-            initialized = true;
+    public boolean wasLootGenerated() { return wasLootGenerated; }
+    public void setLootGenerated(boolean val) { this.wasLootGenerated = val; }
+
+    public void fillInitialLoot() {
+        if (wasLootGenerated) return;
+        VillagerProfession prof = getProfession();
+        if (prof != VillagerProfession.NONE && prof != VillagerProfession.NITWIT) {
+            generateLootTable(prof);
+        }
+        wasLootGenerated = true;
+    }
+
+    // МЕТОД ДЛЯ КОМАНДЫ (ПРИНУДИТЕЛЬНЫЙ)
+    public void forceLootGeneration() {
+        VillagerProfession prof = getProfession();
+        if (prof != VillagerProfession.NONE && prof != VillagerProfession.NITWIT) {
+            inventory.clearContent(); // Очищаем старое перед принудительным спавном
+            generateLootTable(prof);
+            wasLootGenerated = true;
         }
     }
 
-    private void fillInventoryRandomly(VillagerProfession prof) {
+    private void generateLootTable(VillagerProfession prof) {
         if (villager == null) return;
-        Random random = new Random();
-        List<Item> pool = new ArrayList<>();
 
-        if (prof.equals(VillagerProfession.FARMER)) {
-            pool.addAll(List.of(Items.WHEAT, Items.POTATO, Items.CARROT, Items.BREAD));
-        } else if (prof.equals(VillagerProfession.TOOLSMITH) || prof.equals(VillagerProfession.WEAPONSMITH)) {
-            pool.addAll(List.of(Items.IRON_INGOT, Items.COAL, Items.IRON_AXE, Items.IRON_SWORD));
-        } else if (prof.equals(VillagerProfession.LIBRARIAN)) {
-            pool.addAll(List.of(Items.BOOK, Items.PAPER, Items.FEATHER));
-        } else {
-            pool.addAll(List.of(Items.STICK, Items.APPLE, Items.COBBLESTONE));
+        if (prof == VillagerProfession.FARMER) {
+            addRandom(Items.WHEAT, 10, 24);
+            addRandom(Items.POTATO, 5, 12);
+            addRandom(Items.WHEAT_SEEDS, 8, 16);
+            addRandom(Items.BREAD, 2, 5);
+        } else if (prof == VillagerProfession.TOOLSMITH) {
+            addRandom(Items.IRON_INGOT, 4, 9);
+            addRandom(Items.COAL, 12, 24);
+            addRandom(Items.STONE_PICKAXE, 1, 1);
+        } else if (prof == VillagerProfession.ARMORER) {
+            addRandom(Items.IRON_INGOT, 6, 12);
+            addRandom(Items.COAL, 10, 20);
+            addRandom(Items.IRON_HELMET, 1, 1);
+        } else if (prof == VillagerProfession.WEAPONSMITH) {
+            addRandom(Items.IRON_INGOT, 5, 10);
+            addRandom(Items.FLINT, 4, 8);
+            addRandom(Items.IRON_SWORD, 1, 1);
+        } else if (prof == VillagerProfession.LIBRARIAN) {
+            addRandom(Items.PAPER, 20, 48);
+            addRandom(Items.BOOK, 3, 7);
+            addRandom(Items.FEATHER, 5, 10);
+        } else if (prof == VillagerProfession.CLERIC) {
+            addRandom(Items.REDSTONE, 10, 20);
+            addRandom(Items.GOLD_INGOT, 2, 5);
+            addRandom(Items.ROTTEN_FLESH, 16, 32);
+        } else if (prof == VillagerProfession.BUTCHER) {
+            addRandom(Items.BEEF, 8, 16);
+            addRandom(Items.COAL, 5, 10);
+        } else if (prof == VillagerProfession.MASON) {
+            addRandom(Items.CLAY_BALL, 16, 32);
+            addRandom(Items.STONE, 32, 64);
+        } else if (prof == VillagerProfession.FLETCHER) {
+            addRandom(Items.STICK, 16, 32);
+            addRandom(Items.FLINT, 10, 20);
+            addRandom(Items.FEATHER, 10, 20);
+        } else if (prof == VillagerProfession.LEATHERWORKER) {
+            addRandom(Items.LEATHER, 6, 15);
+            addRandom(Items.RABBIT_HIDE, 4, 8);
+        } else if (prof == VillagerProfession.SHEPHERD) {
+            addRandom(Items.WHITE_WOOL, 8, 16);
+            addRandom(Items.SHEARS, 1, 1);
+        } else if (prof == VillagerProfession.FISHERMAN) {
+            addRandom(Items.COD, 10, 20);
+            addRandom(Items.STRING, 5, 12);
         }
-
-        int count = 2 + random.nextInt(2);
-        for (int i = 0; i < count; i++) {
-            Item item = pool.get(random.nextInt(pool.size()));
-            inventory.addItem(new ItemStack(item, 3 + random.nextInt(7)));
-        }
     }
 
-    @Override
-    public SimpleContainer getInventory() {
-        ensureInitialized();
-        return inventory;
+    private void addRandom(Item item, int min, int max) {
+        int count = min + new Random().nextInt(max - min + 1);
+        inventory.addItem(new ItemStack(item, count));
     }
 
-    @Override
-    public long getBalance() {
-        return budget;
-    }
+    @Override public SimpleContainer getInventory() { return inventory; }
+    @Override public long getBalance() { return budget; }
+    @Override public void setBalance(long balance) { this.budget = balance; }
+    @Override public String getActorDisplayName() { return villager != null ? villager.getDisplayName().getString() : "Villager"; }
 
-    @Override
-    public void setBalance(long balance) {
-        this.budget = balance;
-    }
-
-    @Override
-    public String getActorDisplayName() {
-        return villager != null ? villager.getDisplayName().getString() : "Villager";
-    }
-
-    /**
-     * Преобразует "Умные желания" из DesireProcessor в список Demand для торговли.
-     */
     public List<Demand> getDemands() {
-        ensureInitialized();
-        if (recalcCooldown > 0) {
-            recalcCooldown--;
-            return cachedDemands;
-        }
-        recalcCooldown = 100; // Пересчет раз в 5 секунд
-
+        if (recalcCooldown > 0) { recalcCooldown--; return cachedDemands; }
+        recalcCooldown = 100;
         cachedDemands.clear();
         List<Desire> smartDesires = desireProcessor.calculateDesires();
-
         for (Desire desire : smartDesires) {
-            // Максимальная цена покупки = базовая цена * 1.5 (готов переплатить за нужду)
             double rawPrice = PriceCalculator.getRawPrice(desire.stack.getItem());
             int maxPrice = (int) (rawPrice * 1.5);
             cachedDemands.add(new Demand(desire.stack, Math.max(1, maxPrice)));
         }
-
         return cachedDemands;
     }
 
     public List<Offer> getOffers() {
-        ensureInitialized();
         cachedOffers.clear();
         VillagerProfession prof = getProfession();
-
         for (int i = 0; i < INVENTORY_SIZE; i++) {
             ItemStack s = inventory.getItem(i);
             if (s.isEmpty()) continue;
-
-            boolean isProfessionalItem = isItemRelatedToProfession(s.getItem(), prof);
-
-            // Если предмет НЕ по профессии - продаем всё.
-            // Если предмет ПО профессии - продаем излишки (оставляем себе 2 шт).
-            int keepAmount = isProfessionalItem ? 2 : 0;
-
-            if (s.getCount() > keepAmount) {
+            int keep = isProfessionalItem(s.getItem(), prof) ? 2 : 0;
+            if (s.getCount() > keep) {
                 int price = (int) Math.max(1, PriceCalculator.getRawPrice(s.getItem()));
-                // Цена продажи = 80% от рыночной
-                cachedOffers.add(new Offer(new ItemStack(s.getItem(), s.getCount() - keepAmount), (int)(price * 0.8)));
+                cachedOffers.add(new Offer(new ItemStack(s.getItem(), s.getCount() - keep), (int)(price * 0.8)));
             }
         }
         return cachedOffers;
     }
 
-    private boolean isItemRelatedToProfession(Item item, VillagerProfession prof) {
-        if (prof == VillagerProfession.FARMER)
-            return item == Items.WHEAT || item == Items.BREAD || item == Items.CARROT || item == Items.POTATO || item == Items.WHEAT_SEEDS;
-        if (prof == VillagerProfession.TOOLSMITH || prof == VillagerProfession.WEAPONSMITH)
-            return item == Items.IRON_INGOT || item == Items.COAL || item == Items.IRON_PICKAXE || item == Items.IRON_SWORD;
-        if (prof == VillagerProfession.LIBRARIAN)
-            return item == Items.BOOK || item == Items.PAPER || item == Items.FEATHER;
+    private boolean isProfessionalItem(Item item, VillagerProfession prof) {
+        if (prof == VillagerProfession.FARMER) return item == Items.WHEAT || item == Items.BREAD || item == Items.WHEAT_SEEDS;
+        if (prof == VillagerProfession.TOOLSMITH || prof == VillagerProfession.WEAPONSMITH) return item == Items.IRON_INGOT || item == Items.COAL;
         return false;
     }
 
-    public static class Demand {
-        public final ItemStack stack;
-        public final int maxPricePerItem;
-        public Demand(ItemStack stack, int maxPricePerItem) {
-            this.stack = stack;
-            this.maxPricePerItem = maxPricePerItem;
-        }
-    }
-
-    public static class Offer {
-        public final ItemStack stack;
-        public final int minPricePerItem;
-        public Offer(ItemStack stack, int minPricePerItem) {
-            this.stack = stack;
-            this.minPricePerItem = minPricePerItem;
-        }
-    }
-
-    // ==================== СЕРИАЛИЗАЦИЯ ====================
     public CompoundTag serializeNBT(HolderLookup.Provider provider) {
         CompoundTag tag = new CompoundTag();
         tag.putLong("Budget", budget);
-        tag.putBoolean("Initialized", initialized);
+        tag.putBoolean("WasLootGenerated", wasLootGenerated);
         tag.putString("LastProfession", BuiltInRegistries.VILLAGER_PROFESSION.getKey(lastProfession).toString());
         ListTag invList = new ListTag();
         for (int i = 0; i < INVENTORY_SIZE; i++) {
@@ -198,7 +179,7 @@ public class VillagerAttachment implements IEconomicActor {
 
     public void deserializeNBT(HolderLookup.Provider provider, CompoundTag tag) {
         budget = tag.getLong("Budget");
-        initialized = tag.getBoolean("Initialized");
+        wasLootGenerated = tag.getBoolean("WasLootGenerated");
         String profKey = tag.getString("LastProfession");
         lastProfession = BuiltInRegistries.VILLAGER_PROFESSION.get(ResourceLocation.parse(profKey));
         if (lastProfession == null) lastProfession = VillagerProfession.NONE;
@@ -213,20 +194,18 @@ public class VillagerAttachment implements IEconomicActor {
         }
     }
 
-    public void forceReinitialize() {
-        this.initialized = false;
+    public static class Demand {
+        public final ItemStack stack;
+        public final int maxPricePerItem;
+        public Demand(ItemStack stack, int maxPricePerItem) { this.stack = stack; this.maxPricePerItem = maxPricePerItem; }
     }
 
-    @Override
-    public boolean wantsToBuy(ItemStack stack) {
-        for (Demand demand : getDemands()) {
-            if (ItemStack.isSameItemSameComponents(demand.stack, stack)) return true;
-        }
-        return false;
+    public static class Offer {
+        public final ItemStack stack;
+        public final int minPricePerItem;
+        public Offer(ItemStack stack, int minPricePerItem) { this.stack = stack; this.minPricePerItem = minPricePerItem; }
     }
 
-    @Override
-    public BlockPos getPosition() {
-        return villager != null ? villager.blockPosition() : null;
-    }
+    @Override public boolean wantsToBuy(ItemStack stack) { return false; }
+    @Override public BlockPos getPosition() { return villager != null ? villager.blockPosition() : null; }
 }

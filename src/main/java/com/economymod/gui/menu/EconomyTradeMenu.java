@@ -33,6 +33,7 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
     private final long[] prices;
     private long clientBalance;
     private long clientBudget;
+
     public final SimpleContainer buyContainer = new SimpleContainer(9);
     public final SimpleContainer sellContainer = new SimpleContainer(9);
 
@@ -47,6 +48,7 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
         this.ownerInventory = owner != null ? owner.getInventory() : new SimpleContainer(36);
         this.prices = new long[OWNER_SLOTS];
 
+        // 0-35: Слоты торговца (Только просмотр)
         for (int r = 0; r < 4; r++)
             for (int c = 0; c < 9; c++) {
                 int s = c + r * 9;
@@ -56,13 +58,16 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
                 });
             }
 
+        // 36-62: Инвентарь игрока
         for (int r = 0; r < 3; r++)
             for (int c = 0; c < 9; c++)
                 this.addSlot(new Slot(playerInv, c + r * 9 + 9, 8 + c * 18, 103 + r * 18));
 
+        // 63-71: Хотбар
         for (int c = 0; c < 9; c++)
             this.addSlot(new Slot(playerInv, c, 8 + c * 18, 161));
 
+        // 72-80: Слоты ПОКУПКИ (Виртуальные)
         for (int r = 0; r < 3; r++)
             for (int c = 0; c < 3; c++) {
                 int slot = c + r * 3;
@@ -71,6 +76,7 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
                 });
             }
 
+        // 81-89: Слоты ПРОДАЖИ (Физические)
         for (int r = 0; r < 3; r++)
             for (int c = 0; c < 3; c++) {
                 int slot = c + r * 3;
@@ -82,10 +88,18 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
         refreshPrices();
     }
 
+    @Override
+    public void broadcastChanges() {
+        super.broadcastChanges();
+        // Принудительно уведомляем контейнеры об изменениях
+        this.sellContainer.setChanged();
+        this.buyContainer.setChanged();
+    }
+
     public void refreshPrices() {
         for (int i = 0; i < OWNER_SLOTS; i++) {
             ItemStack st = ownerInventory.getItem(i);
-            prices[i] = st.isEmpty() ? 0 : PriceCalculator.getBuyPrice(st, null);
+            prices[i] = st.isEmpty() ? 0 : (long)PriceCalculator.getBuyPrice(st, null);
         }
     }
 
@@ -140,18 +154,20 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
                 buyContainer.setItem(i, ItemStack.EMPTY);
             }
         }
-        this.clearContainer(player, sellContainer);
+        for (int i = 0; i < 9; i++) {
+            ItemStack s = sellContainer.getItem(i);
+            if (!s.isEmpty()) {
+                if (!player.getInventory().add(s)) player.drop(s, false);
+                sellContainer.setItem(i, ItemStack.EMPTY);
+            }
+        }
     }
 
     @Override
     public void removed(Player player) {
         super.removed(player);
-        this.clearContainer(player, this.sellContainer);
-        if (ownerActor != null && !player.level().isClientSide) {
-            for (int i = 0; i < buyContainer.getContainerSize(); i++) {
-                ItemStack stack = buyContainer.getItem(i);
-                if (!stack.isEmpty()) com.economymod.economy.TransactionService.addItems(ownerActor, stack, stack.getCount());
-            }
+        if (!player.level().isClientSide) {
+            clearBaskets((ServerPlayer) player);
         }
     }
 
@@ -166,11 +182,14 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
             ItemStack itemstack1 = slot.getItem();
             itemstack = itemstack1.copy();
 
+            // Из инвентаря игрока -> в слоты ПРОДАЖИ
             if (index >= PLAYER_INV_START && index <= HOTBAR_END) {
                 if (!this.moveItemStackTo(itemstack1, SELL_START, SELL_END + 1, false)) {
                     return ItemStack.EMPTY;
                 }
-            } else if (index >= SELL_START && index <= SELL_END) {
+            }
+            // Из слотов продажи -> обратно в инвентарь
+            else if (index >= SELL_START && index <= SELL_END) {
                 if (!this.moveItemStackTo(itemstack1, PLAYER_INV_START, HOTBAR_END + 1, true)) {
                     return ItemStack.EMPTY;
                 }
