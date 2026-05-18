@@ -1,19 +1,15 @@
 package com.economymod;
 
 import com.economymod.client.ClientEventHandler;
-import com.economymod.command.CommandRegistry;
-import com.economymod.command.GiveBudgetCommand;
-import com.economymod.command.VillagerTradeCommand;
-import com.economymod.command.InitializeLootCommand; // ДОБАВЛЕНО
-import com.economymod.entity.ai.VillagerP2PTradeGoal;
-import com.economymod.entity.ai.VillagerCraftingGoal;
-import com.economymod.entity.ai.VillagerSmeltingGoal;
+import com.economymod.command.*;
+import com.economymod.entity.ai.*;
 import com.economymod.event.ServerEvents;
 import com.economymod.event.VillagerInteractionHandler;
 import com.economymod.registry.ModAttachments;
 import com.economymod.registry.ModEntities;
 import com.economymod.registry.ModMenus;
 import com.economymod.economy.EconomyManager;
+import com.economymod.attachment.VillagerAttachment;
 import com.mojang.logging.LogUtils;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.server.level.ServerLevel;
@@ -49,7 +45,6 @@ public class EconomyMod {
     private static final Map<UUID, Long> lootDelayQueue = new HashMap<>();
 
     public EconomyMod(IEventBus modEventBus) {
-        LOGGER.info("=== EconomyMod: loading ===");
         ModEntities.ENTITY_TYPES.register(modEventBus);
         ModAttachments.ATTACHMENT_TYPES.register(modEventBus);
         ModMenus.MENU_TYPES.register(modEventBus);
@@ -60,11 +55,10 @@ public class EconomyMod {
         NeoForge.EVENT_BUS.register(CommandRegistry.class);
         NeoForge.EVENT_BUS.register(VillagerTradeCommand.class);
         NeoForge.EVENT_BUS.register(GiveBudgetCommand.class);
-        NeoForge.EVENT_BUS.register(InitializeLootCommand.class); // РЕГИСТРАЦИЯ КОМАНДЫ
+        NeoForge.EVENT_BUS.register(InitializeLootCommand.class);
         NeoForge.EVENT_BUS.register(ServerEvents.class);
         NeoForge.EVENT_BUS.register(VillagerInteractionHandler.class);
         NeoForge.EVENT_BUS.register(this);
-        LOGGER.info("=== EconomyMod: loaded ===");
     }
 
     @SubscribeEvent
@@ -73,10 +67,10 @@ public class EconomyMod {
         if (event.getPlayer() instanceof ServerPlayer sp) {
             CustomData customData = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY);
             if (customData.contains("EconomyValue")) {
-                long value = customData.copyTag().getLong("EconomyValue") * stack.getCount();
-                sp.getData(ModAttachments.PLAYER_ECONOMY.get()).add(value);
-                sp.level().playSound(null, sp.blockPosition(), net.minecraft.sounds.SoundEvents.EXPERIENCE_ORB_PICKUP,
-                        net.minecraft.sounds.SoundSource.PLAYERS, 0.5F, 1.2F);
+                long value = customData.copyTag().getLong("EconomyValue") * (long)stack.getCount();
+                var att = sp.getData(ModAttachments.PLAYER_ECONOMY.get());
+                if (att != null) att.add(value);
+                sp.level().playSound(null, sp.blockPosition(), net.minecraft.sounds.SoundEvents.EXPERIENCE_ORB_PICKUP, net.minecraft.sounds.SoundSource.PLAYERS, 0.5F, 1.2F);
                 event.getItemEntity().discard();
                 event.setCanPickup(TriState.FALSE);
             }
@@ -90,21 +84,15 @@ public class EconomyMod {
             if (att != null) {
                 SimpleContainer inv = att.getInventory();
                 for (int i = 0; i < inv.getContainerSize(); i++) {
-                    ItemStack stack = inv.getItem(i);
-                    if (!stack.isEmpty()) {
-                        event.getDrops().add(new ItemEntity(villager.level(),
-                                villager.getX(), villager.getY(), villager.getZ(), stack.copy()));
-                    }
+                    if (!inv.getItem(i).isEmpty()) event.getDrops().add(new ItemEntity(villager.level(), villager.getX(), villager.getY(), villager.getZ(), inv.getItem(i).copy()));
                 }
                 long coins = att.getBalance();
                 if (coins > 0) {
                     ItemStack moneyStack = new ItemStack(Items.GOLD_NUGGET, 1);
-                    CompoundTag tag = new CompoundTag();
-                    tag.putLong("EconomyValue", coins);
+                    CompoundTag tag = new CompoundTag(); tag.putLong("EconomyValue", coins);
                     moneyStack.set(DataComponents.CUSTOM_DATA, CustomData.of(tag));
                     moneyStack.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
-                    event.getDrops().add(new ItemEntity(villager.level(),
-                            villager.getX(), villager.getY(), villager.getZ(), moneyStack));
+                    event.getDrops().add(new ItemEntity(villager.level(), villager.getX(), villager.getY(), villager.getZ(), moneyStack));
                 }
             }
         }
@@ -116,7 +104,10 @@ public class EconomyMod {
             villager.setCanPickUpLoot(true);
             villager.goalSelector.addGoal(1, new VillagerP2PTradeGoal(villager));
             villager.goalSelector.addGoal(2, new VillagerCraftingGoal(villager));
-            villager.goalSelector.addGoal(3, new VillagerSmeltingGoal(villager));
+            villager.goalSelector.addGoal(2, new VillagerSmeltingGoal(villager));
+            villager.goalSelector.addGoal(2, new VillagerCompostingGoal(villager));
+            villager.goalSelector.addGoal(3, new VillagerDepositTrashGoal(villager));
+
             var att = villager.getData(ModAttachments.VILLAGER.get());
             if (att != null && !event.loadedFromDisk()) {
                 lootDelayQueue.put(villager.getUUID(), event.getLevel().getGameTime() + 20);
@@ -128,17 +119,15 @@ public class EconomyMod {
     public void onLevelTick(LevelTickEvent.Post event) {
         if (event.getLevel() instanceof ServerLevel serverLevel) {
             long currentTime = serverLevel.getGameTime();
+
             lootDelayQueue.entrySet().removeIf(entry -> {
                 if (currentTime >= entry.getValue()) {
                     var entity = serverLevel.getEntity(entry.getKey());
                     if (entity instanceof Villager villager && villager.isAlive()) {
                         var att = villager.getData(ModAttachments.VILLAGER.get());
                         if (att != null && !att.wasLootGenerated()) {
-                            if (villager.getVillagerData().getProfession() != VillagerProfession.NONE) {
-                                att.fillInitialLoot();
-                            } else {
-                                att.setLootGenerated(true);
-                            }
+                            if (villager.getVillagerData().getProfession() != VillagerProfession.NONE) att.fillInitialLoot();
+                            else att.setLootGenerated(true);
                         }
                     }
                     return true;
@@ -146,11 +135,15 @@ public class EconomyMod {
                 return false;
             });
 
-            for (var entity : serverLevel.getAllEntities()) {
-                if (entity instanceof Villager villager && villager.isAlive()) {
-                    siphonInventory(villager);
+            // ИСПРАВЛЕНО: Безопасный и быстрый перебор жителей в мире
+            if (currentTime % 20 == 0) { // Раз в секунду
+                for (var entity : serverLevel.getAllEntities()) {
+                    if (entity instanceof Villager villager && villager.isAlive()) {
+                        siphonInventory(villager);
+                    }
                 }
             }
+
             com.economymod.economy.systems.VirtualTraderManager.tick(serverLevel);
             if (economyManager != null) economyManager.tick();
         }
