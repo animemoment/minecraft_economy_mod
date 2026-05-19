@@ -79,15 +79,19 @@ public class EconomyTradeScreen extends AbstractContainerScreen<EconomyTradeMenu
 
     @Override
     protected void renderLabels(GuiGraphics g, int mx, int my) {
-        String youText = String.format("Вы: %d⛀", getMenu().getClientBalance());
-        String ownerText = String.format("Торговец: %d⛀", getMenu().getClientBudget());
-        g.drawString(font, youText, 8, 6, 0x404040, false);
-        g.drawString(font, ownerText, 150, 6, 0x404040, false);
-        long buyCost = getMenu().getTotalBuyCost();
-        long sellValue = getMenu().getTotalSellValue();
-        long diff = sellValue - buyCost;
-        String text = String.format("Баланс: %d⛀", diff);
-        g.drawString(font, text, 196, 158, diff >= 0 ? 0x228B22 : 0xFF0000, false);
+        // Форматирование с %.2f для отображения копеек
+        String youText = String.format("Вы: %.2f⛀", (double)getMenu().getClientBalance());
+        String ownerText = String.format("Торговец: %.2f⛀", (double)getMenu().getClientBudget());
+
+        g.drawString(font, youText, 8, 6, 0x00FF00, false);
+        g.drawString(font, ownerText, 150, 6, 0xFFD700, false);
+
+        double buyCost = getMenu().getTotalBuyCost();
+        double sellValue = getMenu().getTotalSellValue();
+        double diff = sellValue - buyCost;
+
+        String text = String.format("Итого: %.2f⛀", diff);
+        g.drawString(font, text, 196, 158, diff >= 0 ? 0x00FF00 : 0xFF0000, false);
     }
 
     @Override
@@ -112,7 +116,7 @@ public class EconomyTradeScreen extends AbstractContainerScreen<EconomyTradeMenu
                 price = (long) PriceCalculator.getSellPrice(slot.getItem(), null);
             }
             if (price > 0) {
-                tooltip.add(Component.literal("Цена: " + price + "⛀/шт.").withStyle(ChatFormatting.GOLD));
+                tooltip.add(net.minecraft.network.chat.Component.literal(String.format("Цена: %.2f⛀/шт.", (double)price)).withStyle(ChatFormatting.GOLD));
             }
             g.renderComponentTooltip(font, tooltip, x, y);
         }

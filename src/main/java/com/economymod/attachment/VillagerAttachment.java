@@ -17,6 +17,7 @@ import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.PickaxeItem;
 
 import java.util.*;
 
@@ -24,7 +25,7 @@ public class VillagerAttachment implements IEconomicActor {
     public static final int INVENTORY_SIZE = 36;
     private final SimpleContainer inventory = new SimpleContainer(INVENTORY_SIZE);
     private final Villager villager;
-    private long budget;
+    private double budget; // ИЗМЕНЕНО: double
     private boolean wasLootGenerated = false;
     private BlockPos personalChestPos = null;
 
@@ -35,11 +36,18 @@ public class VillagerAttachment implements IEconomicActor {
 
     public VillagerAttachment(Villager villager) {
         this.villager = villager;
-        this.budget = villager != null ? 100 + villager.getRandom().nextInt(200) : 100;
+        this.budget = villager != null ? 50.0 + villager.getRandom().nextInt(150) : 100.0;
     }
 
     public VillagerProfession getProfession() {
         return villager != null ? villager.getVillagerData().getProfession() : VillagerProfession.NONE;
+    }
+
+    public boolean hasPickaxe() {
+        for (int i = 0; i < INVENTORY_SIZE; i++) {
+            if (inventory.getItem(i).getItem() instanceof PickaxeItem) return true;
+        }
+        return false;
     }
 
     public BlockPos getPersonalChestPos() { return personalChestPos; }
@@ -54,22 +62,12 @@ public class VillagerAttachment implements IEconomicActor {
         }
     }
 
-    // МЕТОД ДЛЯ КОМАНДЫ (ПРИНУДИТЕЛЬНЫЙ)
-    public void forceLootGeneration() {
-        VillagerProfession prof = getProfession();
-        if (prof != VillagerProfession.NONE && prof != VillagerProfession.NITWIT) {
-            inventory.clearContent();
-            generateLootTable(prof);
-            wasLootGenerated = true;
-        }
-    }
-
     private void generateLootTable(VillagerProfession prof) {
         if (villager == null) return;
         if (prof == VillagerProfession.FARMER) {
             addRandom(Items.WHEAT, 10, 24); addRandom(Items.WHEAT_SEEDS, 8, 16); addRandom(Items.BONE_MEAL, 2, 5);
         } else if (prof == VillagerProfession.TOOLSMITH) {
-            addRandom(Items.IRON_INGOT, 4, 8); addRandom(Items.COAL, 10, 20);
+            addRandom(Items.IRON_INGOT, 4, 8); addRandom(Items.COAL, 10, 20); addRandom(Items.IRON_PICKAXE, 1, 1);
         } else if (prof == VillagerProfession.BUTCHER) {
             addRandom(Items.BEEF, 8, 16); addRandom(Items.COAL, 5, 10);
         } else if (prof == VillagerProfession.CLERIC) {
@@ -95,15 +93,18 @@ public class VillagerAttachment implements IEconomicActor {
 
     private boolean isUseful(Item item, VillagerProfession prof) {
         if (item.getFoodProperties(item.getDefaultInstance(), villager) != null) return true;
-        if (item == Items.IRON_INGOT || item == Items.COAL || item == Items.STICK || item == Items.GOLD_NUGGET) return true;
+        if (item == Items.IRON_INGOT || item == Items.COAL || item == Items.STICK || item == Items.GOLD_NUGGET || item instanceof PickaxeItem) return true;
         if (prof == VillagerProfession.FARMER) return item == Items.WHEAT_SEEDS || item == Items.WHEAT || item == Items.BONE_MEAL;
         if (prof == VillagerProfession.TOOLSMITH) return item == Items.RAW_IRON || item == Items.IRON_PICKAXE;
         return false;
     }
 
     @Override public SimpleContainer getInventory() { return inventory; }
-    @Override public long getBalance() { return budget; }
-    @Override public void setBalance(long balance) { this.budget = balance; }
+
+    // ИСПРАВЛЕНО: Геттер и сеттер теперь используют double
+    @Override public double getBalance() { return budget; }
+    @Override public void setBalance(double balance) { this.budget = balance; }
+
     @Override public String getActorDisplayName() { return villager != null ? villager.getDisplayName().getString() : "Villager"; }
 
     public List<Demand> getDemands() {
@@ -112,8 +113,9 @@ public class VillagerAttachment implements IEconomicActor {
         cachedDemands.clear();
         List<Desire> smartDesires = desireProcessor.calculateDesires();
         for (Desire desire : smartDesires) {
-            int maxPrice = (int) (PriceCalculator.getRawPrice(desire.stack.getItem()) * 1.5);
-            cachedDemands.add(new Demand(desire.stack, Math.max(1, maxPrice)));
+            double rawPrice = PriceCalculator.getRawPrice(desire.stack.getItem());
+            double maxPrice = rawPrice * 1.5;
+            cachedDemands.add(new Demand(desire.stack, (int)maxPrice));
         }
         return cachedDemands;
     }
@@ -126,7 +128,7 @@ public class VillagerAttachment implements IEconomicActor {
             if (s.isEmpty()) continue;
             int keep = isProfessionalItem(s.getItem(), prof) ? 2 : 0;
             if (s.getCount() > keep) {
-                int price = (int) Math.max(1, PriceCalculator.getRawPrice(s.getItem()));
+                double price = PriceCalculator.getRawPrice(s.getItem());
                 cachedOffers.add(new Offer(new ItemStack(s.getItem(), s.getCount() - keep), (int)(price * 0.8)));
             }
         }
@@ -141,7 +143,7 @@ public class VillagerAttachment implements IEconomicActor {
 
     public CompoundTag serializeNBT(HolderLookup.Provider provider) {
         CompoundTag tag = new CompoundTag();
-        tag.putLong("Budget", budget);
+        tag.putDouble("Budget", budget); // ИЗМЕНЕНО: putDouble
         tag.putBoolean("WasLootGenerated", wasLootGenerated);
         if (personalChestPos != null) tag.putLong("ChestPos", personalChestPos.asLong());
         ListTag invList = new ListTag();
@@ -159,7 +161,7 @@ public class VillagerAttachment implements IEconomicActor {
     }
 
     public void deserializeNBT(HolderLookup.Provider provider, CompoundTag tag) {
-        budget = tag.getLong("Budget");
+        budget = tag.getDouble("Budget"); // ИЗМЕНЕНО: getDouble
         wasLootGenerated = tag.getBoolean("WasLootGenerated");
         if (tag.contains("ChestPos")) personalChestPos = BlockPos.of(tag.getLong("ChestPos"));
         inventory.clearContent();
@@ -179,4 +181,13 @@ public class VillagerAttachment implements IEconomicActor {
     @Override public BlockPos getPosition() { return villager != null ? villager.blockPosition() : null; }
     public static class Demand { public final ItemStack stack; public final int maxPricePerItem; public Demand(ItemStack stack, int maxPricePerItem) { this.stack = stack; this.maxPricePerItem = maxPricePerItem; } }
     public static class Offer { public final ItemStack stack; public final int minPricePerItem; public Offer(ItemStack stack, int minPricePerItem) { this.stack = stack; this.minPricePerItem = minPricePerItem; } }
+
+    public void forceLootGeneration() {
+        VillagerProfession prof = getProfession();
+        if (prof != VillagerProfession.NONE && prof != VillagerProfession.NITWIT) {
+            inventory.clearContent();
+            generateLootTable(prof);
+            wasLootGenerated = true;
+        }
+    }
 }

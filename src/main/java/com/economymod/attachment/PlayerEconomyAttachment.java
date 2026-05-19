@@ -6,37 +6,37 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 public class PlayerEconomyAttachment {
     public static final Codec<PlayerEconomyAttachment> CODEC = RecordCodecBuilder.create(instance ->
             instance.group(
-                    Codec.LONG.fieldOf("balance").forGetter(a -> a.balance)
+                    Codec.DOUBLE.fieldOf("balance").forGetter(a -> a.balance)
             ).apply(instance, PlayerEconomyAttachment::new)
     );
 
-    private long balance;
+    private double balance;
 
-    public void setBalance(long balance) {
+    public void setBalance(double balance) {
         this.balance = balance;
     }
 
     public PlayerEconomyAttachment() {
-        this.balance = 100L;
+        this.balance = 100.0;
     }
 
-    public PlayerEconomyAttachment(long balance) {
+    public PlayerEconomyAttachment(double balance) {
         this.balance = balance;
     }
 
-    public long getBalance() {
+    public double getBalance() {
         return balance;
     }
 
-    public boolean hasEnough(long amount) {
+    public boolean hasEnough(double amount) {
         return this.balance >= amount;
     }
 
-    public void add(long amount) {
+    public void add(double amount) {
         this.balance += amount;
     }
 
-    public boolean subtract(long amount) {
+    public boolean subtract(double amount) {
         if (!hasEnough(amount)) return false;
         this.balance -= amount;
         return true;

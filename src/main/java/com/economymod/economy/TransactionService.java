@@ -7,13 +7,17 @@ import net.minecraft.world.item.ItemStack;
 public class TransactionService {
 
     public static boolean processTransaction(IEconomicActor seller, IEconomicActor buyer,
-                                             ItemStack item, long pricePerItem, int amount) {
+                                             ItemStack item, double pricePerItem, int amount) {
         if (amount <= 0) return false;
-        long totalPrice = pricePerItem * amount;
+
+        // Расчет в double для сохранения копеек
+        double totalPrice = pricePerItem * (double)amount;
+
         if (!buyer.canAfford(totalPrice)) return false;
         if (!canRemoveItems(seller, item, amount)) return false;
         if (!canAddItems(buyer, item, amount)) return false;
 
+        // Проведение платежа
         buyer.setBalance(buyer.getBalance() - totalPrice);
         seller.setBalance(seller.getBalance() + totalPrice);
 

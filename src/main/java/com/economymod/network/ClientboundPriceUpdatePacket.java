@@ -14,13 +14,13 @@ import org.jetbrains.annotations.NotNull;
 import java.util.HashMap;
 import java.util.Map;
 
-public record ClientboundPriceUpdatePacket(Map<Integer, Long> slotPrices) implements CustomPacketPayload {
+public record ClientboundPriceUpdatePacket(Map<Integer, Double> slotPrices) implements CustomPacketPayload {
 
     public static final CustomPacketPayload.Type<ClientboundPriceUpdatePacket> TYPE =
             new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath(EconomyMod.MODID, "price_update"));
 
     public static final StreamCodec<ByteBuf, ClientboundPriceUpdatePacket> STREAM_CODEC = StreamCodec.composite(
-            ByteBufCodecs.map(HashMap::new, ByteBufCodecs.VAR_INT, ByteBufCodecs.VAR_LONG),
+            ByteBufCodecs.map(HashMap::new, ByteBufCodecs.VAR_INT, ByteBufCodecs.DOUBLE),
             ClientboundPriceUpdatePacket::slotPrices,
             ClientboundPriceUpdatePacket::new
     );

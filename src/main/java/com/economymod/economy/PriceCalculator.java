@@ -22,18 +22,21 @@ public class PriceCalculator {
         if (stack.isEmpty()) return 0.0;
         double base = getRawPrice(stack.getItem());
         if (info != null) base = base * info.getSupplyDemandFactor(stack.getItem()) * info.getInflationRate();
-        return Math.max(0.1, base);
+        return Math.max(0.01, base); // Минимум 1 копейка
     }
 
-    public static long getBuyPrice(ItemStack stack, VillageNetworkData.VillageInfo info) {
-        return (long) Math.ceil(calculateDynamicPrice(stack, info) * 1.10);
+    public static double getBuyPrice(ItemStack stack, VillageNetworkData.VillageInfo info) {
+        // Наценка 10%
+        double price = calculateDynamicPrice(stack, info) * 1.10;
+        return Math.round(price * 100.0) / 100.0; // Округление до 2 знаков
     }
 
-    public static long getSellPrice(ItemStack stack, VillageNetworkData.VillageInfo info) {
-        return (long) Math.max(1L, Math.floor(calculateDynamicPrice(stack, info) * 0.90));
+    public static double getSellPrice(ItemStack stack, VillageNetworkData.VillageInfo info) {
+        // Скидка 10% при продаже игроком
+        double price = calculateDynamicPrice(stack, info) * 0.90;
+        return Math.max(0.01, Math.round(price * 100.0) / 100.0);
     }
 
-    // ВОЗВРАЩЕНО: проверка готовности данных
     public static boolean isPriceTableReady() {
         return !clientPriceTable.isEmpty() || (EconomyMod.getEconomyManager() != null && EconomyMod.getEconomyManager().getPriceTable() != null);
     }

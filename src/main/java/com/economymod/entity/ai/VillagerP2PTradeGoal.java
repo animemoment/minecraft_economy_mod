@@ -28,11 +28,6 @@ public class VillagerP2PTradeGoal extends Goal {
     @Override
     public boolean canUse() {
         if (cooldown > 0) { cooldown--; return false; }
-
-        // КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: проверяем, есть ли желания
-        var att = villager.getData(ModAttachments.VILLAGER.get());
-        if (att == null || att.getDemands().isEmpty()) return false;
-
         if (villager.level().getGameTime() % 40 != 0) return false;
 
         List<Villager> neighbors = villager.level().getEntitiesOfClass(
@@ -47,10 +42,7 @@ public class VillagerP2PTradeGoal extends Goal {
         return false;
     }
 
-    @Override public void start() {
-        this.cooldown = 100;
-        EconomyMod.LOGGER.info("AI: {} подошел к {}", villager.getName().getString(), partner.getName().getString());
-    }
+    @Override public void start() { this.cooldown = 100; }
 
     @Override
     public void tick() {
@@ -72,34 +64,18 @@ public class VillagerP2PTradeGoal extends Goal {
 
         VillageNetworkData.VillageInfo info = VillageNetworkData.get(level).getVillageInfo(villager.blockPosition());
 
-        List<VillagerAttachment.Demand> myDemands = myAtt.getDemands();
-        List<VillagerAttachment.Offer> partnerOffers = partnerAtt.getOffers();
-
-        // ДИАГНОСТИКА: Что хочет покупатель?
-        StringBuilder debugWant = new StringBuilder();
-        for (var d : myDemands) debugWant.append(d.stack.getItem().toString()).append(" ");
-
-        // ДИАГНОСТИКА: Что продает партнер?
-        StringBuilder debugHave = new StringBuilder();
-        for (var o : partnerOffers) debugHave.append(o.stack.getItem().toString()).append(" ");
-
-        EconomyMod.LOGGER.info("ТОРГ: {} хочет [{}] | {} предлагает [{}]",
-                villager.getName().getString(), debugWant, partner.getName().getString(), debugHave);
-
-        for (VillagerAttachment.Demand myDemand : myDemands) {
-            for (VillagerAttachment.Offer partnerOffer : partnerOffers) {
+        for (VillagerAttachment.Demand myDemand : myAtt.getDemands()) {
+            for (VillagerAttachment.Offer partnerOffer : partnerAtt.getOffers()) {
                 if (ItemStack.isSameItemSameComponents(myDemand.stack, partnerOffer.stack)) {
-                    long price = PriceCalculator.getBuyPrice(myDemand.stack, info);
+                    // ИСПРАВЛЕНО: double
+                    double price = PriceCalculator.getBuyPrice(myDemand.stack, info);
                     int amount = Math.min(myDemand.stack.getCount(), partnerOffer.stack.getCount());
 
                     if (TransactionService.processTransaction(partnerAtt, myAtt, myDemand.stack, price, amount)) {
-                        EconomyMod.LOGGER.info("!!! УСПЕХ: {} купил {} у {} за {}",
-                                villager.getName().getString(), myDemand.stack.getItem().toString(), partner.getName().getString(), price);
+                        if (info != null) info.recordTrade(myDemand.stack.getItem(), amount);
                         level.sendParticles(net.minecraft.core.particles.ParticleTypes.HAPPY_VILLAGER,
                                 villager.getX(), villager.getY() + 2, villager.getZ(), 10, 0.2, 0.2, 0.2, 0.05);
                         return;
-                    } else {
-                        EconomyMod.LOGGER.info("ОШИБКА ТРАНЗАКЦИИ: Недостаточно денег или места");
                     }
                 }
             }

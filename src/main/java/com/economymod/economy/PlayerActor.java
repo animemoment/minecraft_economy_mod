@@ -18,17 +18,17 @@ public class PlayerActor implements IEconomicActor {
 
     @Override
     public SimpleContainer getInventory() {
-        return null; // инвентарь игрока не SimpleContainer, работаем через getPlayerInventory()
+        return null;
     }
 
     @Override
-    public long getBalance() {
+    public double getBalance() {
         var eco = player.getData(ModAttachments.PLAYER_ECONOMY.get());
         return eco.getBalance();
     }
 
     @Override
-    public void setBalance(long balance) {
+    public void setBalance(double balance) {
         var eco = player.getData(ModAttachments.PLAYER_ECONOMY.get());
         eco.setBalance(balance);
     }

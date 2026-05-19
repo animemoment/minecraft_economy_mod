@@ -33,7 +33,7 @@ public record ServerboundRequestInitialSyncPacket() implements CustomPacketPaylo
             IEconomicActor owner = menu.getOwnerActor();
             if (owner == null) return;
 
-            // 1. Балансы
+            // 1. Балансы (double)
             PacketDistributor.sendToPlayer(sp, new ClientboundBalanceSyncPacket(
                     sp.getData(ModAttachments.PLAYER_ECONOMY.get()).getBalance(),
                     owner.getBalance()
@@ -44,13 +44,12 @@ public record ServerboundRequestInitialSyncPacket() implements CustomPacketPaylo
             for (int i = 0; i < 36; i++) items.add(owner.getInventory().getItem(i).copy());
             PacketDistributor.sendToPlayer(sp, new ClientboundOwnerInventorySyncPacket(items, owner.getBalance()));
 
-            // 3. Таблица цен
+            // 3. Таблица цен (double)
             var manager = EconomyMod.getEconomyManager();
             if (manager != null && manager.getPriceTable() != null) {
-                Map<String, Long> priceTableStrings = new HashMap<>();
-                // Используем добавленный метод getAllPrices()
+                Map<String, Double> priceTableStrings = new HashMap<>();
                 manager.getPriceTable().getAllPrices().forEach((item, price) -> {
-                    priceTableStrings.put(BuiltInRegistries.ITEM.getKey(item).toString(), (long)(price * 100));
+                    priceTableStrings.put(BuiltInRegistries.ITEM.getKey(item).toString(), price);
                 });
                 PacketDistributor.sendToPlayer(sp, new ClientboundFullPriceTablePacket(priceTableStrings));
             }

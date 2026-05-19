@@ -8,13 +8,10 @@ import io.netty.buffer.ByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
-import java.util.ArrayList;
-import java.util.List;
 
 public record ServerboundProcessTransactionPacket() implements CustomPacketPayload {
     public static final Type<ServerboundProcessTransactionPacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath("economymod", "process_transaction"));
@@ -31,28 +28,25 @@ public record ServerboundProcessTransactionPacket() implements CustomPacketPaylo
             VillageNetworkData.VillageInfo info = VillageNetworkData.get(sp.serverLevel()).getVillageInfo(owner.getPosition());
             boolean tradeHappened = false;
 
-            // ПОКУПКА (Уже в корзине)
             for (int i = 0; i < 9; i++) {
                 ItemStack s = menu.buyContainer.getItem(i);
                 if (s.isEmpty()) continue;
-                long cost = PriceCalculator.getBuyPrice(s, info) * s.getCount();
+                // ИСПРАВЛЕНО: double
+                double cost = PriceCalculator.getBuyPrice(s, info) * s.getCount();
                 if (player.getBalance() >= cost && TransactionService.addItemsSafe(player, s.copy(), s.getCount())) {
                     player.setBalance(player.getBalance() - cost);
                     owner.setBalance(owner.getBalance() + cost);
                     if (info != null) info.recordTrade(s.getItem(), s.getCount());
                     menu.buyContainer.setItem(i, ItemStack.EMPTY);
                     tradeHappened = true;
-                } else {
-                    TransactionService.addItems(owner, s.copy(), s.getCount()); // Вернуть если не влезло
-                    menu.buyContainer.setItem(i, ItemStack.EMPTY);
                 }
             }
 
-            // ПРОДАЖА
             for (int i = 0; i < 9; i++) {
                 ItemStack s = menu.sellContainer.getItem(i);
                 if (s.isEmpty()) continue;
-                long val = PriceCalculator.getSellPrice(s, info) * s.getCount();
+                // ИСПРАВЛЕНО: double
+                double val = PriceCalculator.getSellPrice(s, info) * s.getCount();
                 if (owner.getBalance() >= val && TransactionService.addItemsSafe(owner, s.copy(), s.getCount())) {
                     player.setBalance(player.getBalance() + val);
                     owner.setBalance(owner.getBalance() - val);

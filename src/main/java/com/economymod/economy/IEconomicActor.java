@@ -10,9 +10,9 @@ import java.util.Set;
 
 public interface IEconomicActor {
     SimpleContainer getInventory();
-    long getBalance();
-    void setBalance(long balance);
-    default boolean canAfford(long amount) { return getBalance() >= amount; }
+    double getBalance(); // Изменено на double
+    void setBalance(double balance); // Изменено на double
+    default boolean canAfford(double amount) { return getBalance() >= amount; }
     String getActorDisplayName();
     default boolean wantsToBuy(ItemStack stack) { return false; }
     default Set<Item> getWantedItems() { return Collections.emptySet(); }

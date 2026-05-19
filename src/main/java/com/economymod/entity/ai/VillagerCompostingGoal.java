@@ -10,6 +10,7 @@ import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ComposterBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -53,6 +54,7 @@ public class VillagerCompostingGoal extends Goal {
     @Override
     public void tick() {
         if (composterPos == null) return;
+
         villager.getLookControl().setLookAt(composterPos.getX() + 0.5, composterPos.getY() + 1.0, composterPos.getZ() + 0.5);
 
         if (villager.distanceToSqr(composterPos.getX() + 0.5, composterPos.getY(), composterPos.getZ() + 0.5) < 3.0) {
@@ -63,13 +65,16 @@ public class VillagerCompostingGoal extends Goal {
             for (int i = 0; i < inv.getContainerSize(); i++) {
                 ItemStack s = inv.getItem(i);
                 if (s.is(Items.WHEAT_SEEDS)) {
-                    BlockState state = villager.level().getBlockState(composterPos);
+                    // КРИТИЧНЫЙ БЛОК: Безопасное использование ServerLevel
+                    if (villager.level() instanceof ServerLevel serverLevel) {
+                        BlockState state = serverLevel.getBlockState(composterPos);
 
-                    // ИСПРАВЛЕНО: Правильный порядок (Entity, State, Level, ItemStack, BlockPos)
-                    ComposterBlock.insertItem(villager, state, villager.level(), new ItemStack(Items.WHEAT_SEEDS), composterPos);
+                        // ТОЧНЫЙ ПОРЯДОК АРГУМЕНТОВ 1.21.1: (Entity, State, LevelAccessor, ItemStack, BlockPos)
+                        ComposterBlock.insertItem(villager, state, serverLevel, new ItemStack(Items.WHEAT_SEEDS), composterPos);
 
-                    s.shrink(1);
-                    villager.level().playSound(null, composterPos, net.minecraft.sounds.SoundEvents.COMPOSTER_FILL, net.minecraft.sounds.SoundSource.BLOCKS, 1.0f, 1.0f);
+                        s.shrink(1);
+                        serverLevel.playSound(null, composterPos, net.minecraft.sounds.SoundEvents.COMPOSTER_FILL, net.minecraft.sounds.SoundSource.BLOCKS, 1.0f, 1.0f);
+                    }
                     break;
                 }
             }

@@ -58,9 +58,10 @@ public class CommandRegistry {
                                     String.format("§6=== Цены в деревне [%d, %d, %d] ===", finalPos.getX(), finalPos.getY(), finalPos.getZ())), false);
 
                             for (Item item : info.getActiveItems()) {
-                                long buyPrice = PriceCalculator.getBuyPrice(item.getDefaultInstance(), info);
+                                // ИСПРАВЛЕНО: double
+                                double buyPrice = PriceCalculator.getBuyPrice(item.getDefaultInstance(), info);
                                 context.getSource().sendSuccess(() -> Component.literal(
-                                        item.getDescription().getString() + ": §a" + buyPrice + "⛀"), false);
+                                        String.format("%s: §a%.2f⛀", item.getDescription().getString(), buyPrice)), false);
                             }
 
                             return 1;

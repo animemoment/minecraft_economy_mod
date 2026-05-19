@@ -5,10 +5,9 @@ import com.economymod.attachment.VillagerAttachment;
 import com.economymod.economy.IEconomicActor;
 import com.economymod.economy.PriceCalculator;
 import com.economymod.entity.ai.TravelToVillageGoal;
+import com.economymod.entity.ai.VillagerMiningGoal;
 import com.economymod.gui.menu.EconomyTradeMenu;
 import com.economymod.network.ClientboundOwnerInventorySyncPacket;
-import com.economymod.network.ClientboundPriceUpdatePacket;
-import com.economymod.registry.ModAttachments;
 import com.economymod.world.VillageNetworkData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
@@ -44,10 +43,9 @@ import java.util.*;
 public class EconomyTraderEntity extends AbstractVillager implements MenuProvider, IEconomicActor {
 
     public final SimpleContainer inventory = new SimpleContainer(36);
-    public long budget = 500L;
+    public double budget = 500.0;
     private BlockPos currentBazaar;
     public long lastTravelTime = 0;
-    private boolean pricesNeedRecalc = true;
     private long lastTradeTick = 0;
 
     public EconomyTraderEntity(EntityType<? extends AbstractVillager> type, Level level) {
@@ -60,8 +58,14 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
             this.inventory.setItem(2, new ItemStack(Items.IRON_INGOT, 2));
             this.inventory.setItem(3, new ItemStack(Items.CHICKEN, 4));
             updateCurrentBazaar();
-            if (currentBazaar != null) tradeWithVillage();
         }
+    }
+
+    // ВОЗВРАЩЕННЫЙ МЕТОД ДЛЯ КОМАНДЫ
+    public void arriveAtVillage(BlockPos bazaarPos) {
+        if (bazaarPos == null) return;
+        this.currentBazaar = bazaarPos;
+        if (PriceCalculator.isPriceTableReady()) tradeWithVillagers();
     }
 
     public boolean evaluateOffer(ItemStack stack, double playerPrice, boolean isPlayerBuying) {
@@ -70,40 +74,31 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
         if (level() instanceof ServerLevel serverLevel && currentBazaar != null) {
             info = VillageNetworkData.get(serverLevel).getVillageInfo(currentBazaar);
         }
-        double fairPrice = PriceCalculator.getRawPrice(stack.getItem()) * stack.getCount();
-        if (info != null) fairPrice = PriceCalculator.calculateDynamicPrice(stack, info);
-
+        double fairPrice = PriceCalculator.getBuyPrice(stack, info);
         if (isPlayerBuying) return playerPrice >= (fairPrice * 0.95);
         else return playerPrice <= (fairPrice * 1.05);
     }
 
     public void processCustomTransaction(ServerPlayer player, ItemStack stack, double confirmedPrice, boolean isPlayerBuying) {
-        long priceLong = (long) confirmedPrice;
         if (isPlayerBuying) {
             if (player.containerMenu instanceof EconomyTradeMenu menu) {
                 var playerActor = menu.getPlayerActor();
-                if (playerActor.getBalance() >= priceLong) {
-                    playerActor.setBalance(playerActor.getBalance() - priceLong);
-                    this.budget += priceLong;
+                if (playerActor.getBalance() >= confirmedPrice) {
+                    playerActor.setBalance(playerActor.getBalance() - confirmedPrice);
+                    this.budget += confirmedPrice;
                     if (!player.getInventory().add(stack.copy())) player.drop(stack.copy(), false);
                     stack.setCount(0);
-                    player.sendSystemMessage(Component.literal("§aТорговец: По рукам! Забирай " + stack.getHoverName().getString() + " за " + priceLong + "⛀"));
-                } else {
-                    player.sendSystemMessage(Component.literal("§cТорговец: У тебя не хватает монет!"));
                 }
             }
         } else {
-            if (this.budget >= priceLong) {
+            if (this.budget >= confirmedPrice) {
                 if (player.containerMenu instanceof EconomyTradeMenu menu) {
                     var playerActor = menu.getPlayerActor();
-                    this.budget -= priceLong;
-                    playerActor.setBalance(playerActor.getBalance() + priceLong);
+                    this.budget -= confirmedPrice;
+                    playerActor.setBalance(playerActor.getBalance() + confirmedPrice);
                     this.inventory.addItem(stack.copy());
                     stack.setCount(0);
-                    player.sendSystemMessage(Component.literal("§6Торговец: Отличная сделка. Вот твои " + priceLong + "⛀"));
                 }
-            } else {
-                player.sendSystemMessage(Component.literal("§cТорговец: У меня не хватит монет на это!"));
             }
         }
         syncInventoryToClients();
@@ -136,10 +131,6 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
     @Override
     public InteractionResult mobInteract(Player p, InteractionHand h) {
         if (!this.level().isClientSide) {
-            if (pricesNeedRecalc && PriceCalculator.isPriceTableReady()) {
-                pricesNeedRecalc = false;
-                syncInventoryToClients();
-            }
             p.openMenu(this);
             return InteractionResult.SUCCESS;
         }
@@ -148,30 +139,28 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
 
     @Nullable @Override public AbstractContainerMenu createMenu(int id, Inventory inv, Player p) { return new EconomyTradeMenu(id, inv, this); }
     @Override public SimpleContainer getInventory() { return inventory; }
-    @Override public long getBalance() { return budget; }
-    @Override public void setBalance(long balance) { this.budget = balance; }
+    @Override public double getBalance() { return budget; }
+    @Override public void setBalance(double balance) { this.budget = balance; }
     @Override public Component getDisplayName() { return this.getCustomName() != null ? this.getCustomName() : Component.literal("Trader"); }
     @Override public String getActorDisplayName() { return getDisplayName().getString(); }
-    @Override public BlockPos getPosition() { return getCurrentBazaar(); }
+    @Override public BlockPos getPosition() { return currentBazaar; }
 
     @Override
     public void addAdditionalSaveData(CompoundTag tag) {
         super.addAdditionalSaveData(tag);
         tag.put("Inventory", inventory.createTag(this.registryAccess()));
-        tag.putLong("Budget", budget);
+        tag.putDouble("Budget", budget);
         if (currentBazaar != null) tag.putLong("CurrentBazaar", currentBazaar.asLong());
         tag.putLong("LastTravelTime", lastTravelTime);
-        tag.putBoolean("PricesNeedRecalc", pricesNeedRecalc);
     }
 
     @Override
     public void readAdditionalSaveData(CompoundTag tag) {
         super.readAdditionalSaveData(tag);
         if (tag.contains("Inventory")) inventory.fromTag(tag.getList("Inventory", 10), this.registryAccess());
-        if (tag.contains("Budget")) budget = tag.getLong("Budget");
+        if (tag.contains("Budget")) budget = tag.getDouble("Budget");
         if (tag.contains("CurrentBazaar")) currentBazaar = BlockPos.of(tag.getLong("CurrentBazaar"));
         if (tag.contains("LastTravelTime")) lastTravelTime = tag.getLong("LastTravelTime");
-        pricesNeedRecalc = !tag.contains("PricesNeedRecalc") || tag.getBoolean("PricesNeedRecalc");
     }
 
     private void updateCurrentBazaar() {
@@ -182,53 +171,32 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
         }
     }
 
-    public void arriveAtVillage(BlockPos bazaarPos) {
-        if (bazaarPos == null) return;
-        this.currentBazaar = bazaarPos;
-        if (PriceCalculator.isPriceTableReady()) tradeWithVillage();
-    }
-
-    public void tradeWithVillage() {
-        if (!PriceCalculator.isPriceTableReady()) return;
-        if (currentBazaar == null) return;
-        if (this.level().getGameTime() - lastTradeTick < 100) return;
-        lastTradeTick = this.level().getGameTime();
-        tradeWithVillagers();
-    }
-
     public void tradeWithVillagers() {
         if (!(level() instanceof ServerLevel serverLevel) || currentBazaar == null) return;
-
         VillageNetworkData data = VillageNetworkData.get(serverLevel);
         VillageNetworkData.VillageInfo info = data.getVillageInfo(currentBazaar);
         if (info == null) return;
 
-        if (this.budget <= 0 && countNonEmptySlots(this.inventory) == 0) return;
-
-        List<Villager> villagers = level().getEntitiesOfClass(Villager.class,
-                new AABB(currentBazaar).inflate(48), LivingEntity::isAlive);
-
+        List<Villager> villagers = level().getEntitiesOfClass(Villager.class, new AABB(currentBazaar).inflate(48), LivingEntity::isAlive);
         if (villagers.isEmpty()) return;
 
         boolean tradeHappened = false;
-
         for (Villager villager : villagers) {
-            var att = villager.getData(ModAttachments.VILLAGER.get());
-            if (att.getProfession() == net.minecraft.world.entity.npc.VillagerProfession.NONE) continue;
+            var att = villager.getData(com.economymod.registry.ModAttachments.VILLAGER.get());
+            if (att == null || att.getProfession() == net.minecraft.world.entity.npc.VillagerProfession.NONE) continue;
 
-            for (VillagerAttachment.Demand d : att.getDemands()) {
+            for (com.economymod.attachment.VillagerAttachment.Demand d : att.getDemands()) {
                 for (int i = 0; i < inventory.getContainerSize(); i++) {
                     ItemStack sellerStack = inventory.getItem(i);
                     if (!sellerStack.isEmpty() && ItemStack.isSameItemSameComponents(sellerStack, d.stack)) {
                         int amount = Math.min(sellerStack.getCount(), d.stack.getCount());
-                        long pricePerItem = PriceCalculator.getBuyPrice(new ItemStack(d.stack.getItem()), info);
-
+                        double pricePerItem = PriceCalculator.getBuyPrice(new ItemStack(d.stack.getItem()), info);
                         if (pricePerItem <= d.maxPricePerItem) {
-                            long totalPrice = pricePerItem * amount;
-                            if (att.getBalance() >= totalPrice) {
+                            double total = pricePerItem * amount;
+                            if (att.getBalance() >= total) {
                                 sellerStack.shrink(amount);
-                                att.setBalance(att.getBalance() - totalPrice);
-                                this.budget += totalPrice;
+                                att.setBalance(att.getBalance() - total);
+                                this.budget += total;
                                 att.getInventory().addItem(new ItemStack(d.stack.getItem(), amount));
                                 info.recordTrade(d.stack.getItem(), amount);
                                 tradeHappened = true;
@@ -238,40 +206,8 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
                     }
                 }
             }
-
-            for (VillagerAttachment.Offer o : att.getOffers()) {
-                long priceHere = PriceCalculator.getSellPrice(o.stack, info);
-                if (priceHere < PriceCalculator.getRawPrice(o.stack.getItem()) && this.budget >= priceHere) {
-                    int maxAfford = (int) (this.budget / priceHere);
-                    int amountToBuy = Math.min(o.stack.getCount(), maxAfford);
-
-                    if (amountToBuy > 0) {
-                        int remaining = amountToBuy;
-                        for (int i = 0; i < VillagerAttachment.INVENTORY_SIZE && remaining > 0; i++) {
-                            ItemStack vs = att.getInventory().getItem(i);
-                            if (ItemStack.isSameItemSameComponents(vs, o.stack)) {
-                                int take = Math.min(remaining, vs.getCount());
-                                vs.shrink(take);
-                                remaining -= take;
-                            }
-                        }
-
-                        long totalCost = (long) amountToBuy * priceHere;
-                        att.setBalance(att.getBalance() + totalCost);
-                        this.budget -= totalCost;
-                        this.inventory.addItem(new ItemStack(o.stack.getItem(), amountToBuy));
-                        info.recordTrade(o.stack.getItem(), amountToBuy);
-                        tradeHappened = true;
-                    }
-                }
-            }
         }
-
-        if (tradeHappened) {
-            data.setDirty();
-            syncInventoryToClients();
-            EconomyMod.LOGGER.info("Trader {} completed trades at {}", this.getId(), currentBazaar);
-        }
+        if (tradeHappened) { data.setDirty(); syncInventoryToClients(); }
     }
 
     private int countNonEmptySlots(SimpleContainer inv) {

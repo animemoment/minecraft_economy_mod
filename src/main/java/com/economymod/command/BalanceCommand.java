@@ -11,8 +11,9 @@ public class BalanceCommand {
     public static void register(CommandDispatcher<CommandSourceStack> d) {
         d.register(Commands.literal("balance").executes(ctx -> {
             if (ctx.getSource().getEntity() instanceof ServerPlayer sp) {
-                long bal = sp.getData(ModAttachments.PLAYER_ECONOMY.get()).getBalance();
-                sp.sendSystemMessage(Component.literal("Balance: " + bal + " coins"));
+                // ИСПРАВЛЕНО: double
+                double bal = sp.getData(ModAttachments.PLAYER_ECONOMY.get()).getBalance();
+                sp.sendSystemMessage(Component.literal(String.format("Balance: %.2f coins", bal)));
                 return 1;
             }
             return 0;

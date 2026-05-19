@@ -30,9 +30,9 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
     private final IEconomicActor ownerActor;
     private final PlayerActor playerActor;
     private final SimpleContainer ownerInventory;
-    private final long[] prices;
-    private long clientBalance;
-    private long clientBudget;
+    private final double[] prices; // ИЗМЕНЕНО НА DOUBLE
+    private double clientBalance;
+    private double clientBudget;
 
     public final SimpleContainer buyContainer = new SimpleContainer(9);
     public final SimpleContainer sellContainer = new SimpleContainer(9);
@@ -46,9 +46,8 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
         this.ownerActor = owner;
         this.playerActor = new PlayerActor(playerInv.player);
         this.ownerInventory = owner != null ? owner.getInventory() : new SimpleContainer(36);
-        this.prices = new long[OWNER_SLOTS];
+        this.prices = new double[OWNER_SLOTS];
 
-        // 0-35: Слоты торговца (Только просмотр)
         for (int r = 0; r < 4; r++)
             for (int c = 0; c < 9; c++) {
                 int s = c + r * 9;
@@ -58,16 +57,13 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
                 });
             }
 
-        // 36-62: Инвентарь игрока
         for (int r = 0; r < 3; r++)
             for (int c = 0; c < 9; c++)
                 this.addSlot(new Slot(playerInv, c + r * 9 + 9, 8 + c * 18, 103 + r * 18));
 
-        // 63-71: Хотбар
         for (int c = 0; c < 9; c++)
             this.addSlot(new Slot(playerInv, c, 8 + c * 18, 161));
 
-        // 72-80: Слоты ПОКУПКИ (Виртуальные)
         for (int r = 0; r < 3; r++)
             for (int c = 0; c < 3; c++) {
                 int slot = c + r * 3;
@@ -76,7 +72,6 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
                 });
             }
 
-        // 81-89: Слоты ПРОДАЖИ (Физические)
         for (int r = 0; r < 3; r++)
             for (int c = 0; c < 3; c++) {
                 int slot = c + r * 3;
@@ -91,7 +86,6 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
     @Override
     public void broadcastChanges() {
         super.broadcastChanges();
-        // Принудительно уведомляем контейнеры об изменениях
         this.sellContainer.setChanged();
         this.buyContainer.setChanged();
     }
@@ -99,23 +93,23 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
     public void refreshPrices() {
         for (int i = 0; i < OWNER_SLOTS; i++) {
             ItemStack st = ownerInventory.getItem(i);
-            prices[i] = st.isEmpty() ? 0 : (long)PriceCalculator.getBuyPrice(st, null);
+            prices[i] = st.isEmpty() ? 0 : PriceCalculator.getBuyPrice(st, null);
         }
     }
 
-    public long getPrice(int slot) {
+    public double getPrice(int slot) {
         if (slot >= 0 && slot < prices.length) return prices[slot];
         return 0;
     }
 
-    public void updatePrices(Map<Integer, Long> serverPrices) {
+    public void updatePrices(Map<Integer, Double> serverPrices) {
         serverPrices.forEach((slot, price) -> {
             if (slot >= 0 && slot < prices.length) prices[slot] = price;
         });
     }
 
-    public long getTotalBuyCost() {
-        long total = 0;
+    public double getTotalBuyCost() {
+        double total = 0;
         for (int i = 0; i < 9; i++) {
             ItemStack stack = buyContainer.getItem(i);
             if (!stack.isEmpty()) total += PriceCalculator.getBuyPrice(stack, null) * stack.getCount();
@@ -123,8 +117,8 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
         return total;
     }
 
-    public long getTotalSellValue() {
-        long total = 0;
+    public double getTotalSellValue() {
+        double total = 0;
         for (int i = 0; i < 9; i++) {
             ItemStack stack = sellContainer.getItem(i);
             if (!stack.isEmpty()) total += PriceCalculator.getSellPrice(stack, null) * stack.getCount();
@@ -132,7 +126,7 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
         return total;
     }
 
-    public void updateFromServer(List<ItemStack> inventory, long budget) {
+    public void updateFromServer(List<ItemStack> inventory, double budget) {
         for (int i = 0; i < Math.min(inventory.size(), OWNER_SLOTS); i++)
             ownerInventory.setItem(i, inventory.get(i));
         this.clientBudget = budget;
@@ -141,10 +135,10 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
 
     public PlayerActor getPlayerActor() { return this.playerActor; }
     public IEconomicActor getOwnerActor() { return ownerActor; }
-    public long getClientBalance() { return clientBalance; }
-    public long getClientBudget() { return clientBudget; }
-    public void setClientBalance(long b) { this.clientBalance = b; }
-    public void setClientBudget(long b) { this.clientBudget = b; }
+    public double getClientBalance() { return clientBalance; }
+    public double getClientBudget() { return clientBudget; }
+    public void setClientBalance(double b) { this.clientBalance = b; }
+    public void setClientBudget(double b) { this.clientBudget = b; }
 
     public void clearBaskets(ServerPlayer player) {
         if (ownerActor != null) {
@@ -177,39 +171,21 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
     public ItemStack quickMoveStack(Player player, int index) {
         ItemStack itemstack = ItemStack.EMPTY;
         Slot slot = this.slots.get(index);
-
         if (slot != null && slot.hasItem()) {
             ItemStack itemstack1 = slot.getItem();
             itemstack = itemstack1.copy();
-
-            // Из инвентаря игрока -> в слоты ПРОДАЖИ
             if (index >= PLAYER_INV_START && index <= HOTBAR_END) {
-                if (!this.moveItemStackTo(itemstack1, SELL_START, SELL_END + 1, false)) {
-                    return ItemStack.EMPTY;
-                }
-            }
-            // Из слотов продажи -> обратно в инвентарь
-            else if (index >= SELL_START && index <= SELL_END) {
-                if (!this.moveItemStackTo(itemstack1, PLAYER_INV_START, HOTBAR_END + 1, true)) {
-                    return ItemStack.EMPTY;
-                }
-            } else {
-                return ItemStack.EMPTY;
-            }
+                if (!this.moveItemStackTo(itemstack1, SELL_START, SELL_END + 1, false)) return ItemStack.EMPTY;
+            } else if (index >= SELL_START && index <= SELL_END) {
+                if (!this.moveItemStackTo(itemstack1, PLAYER_INV_START, HOTBAR_END + 1, true)) return ItemStack.EMPTY;
+            } else return ItemStack.EMPTY;
 
-            if (itemstack1.isEmpty()) {
-                slot.setByPlayer(ItemStack.EMPTY);
-            } else {
-                slot.setChanged();
-            }
+            if (itemstack1.isEmpty()) slot.setByPlayer(ItemStack.EMPTY);
+            else slot.setChanged();
 
-            if (itemstack1.getCount() == itemstack.getCount()) {
-                return ItemStack.EMPTY;
-            }
-
+            if (itemstack1.getCount() == itemstack.getCount()) return ItemStack.EMPTY;
             slot.onTake(player, itemstack1);
         }
-
         return itemstack;
     }
 }
