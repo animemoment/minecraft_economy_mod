@@ -43,8 +43,15 @@ public record ClientboundFullPriceTablePacket(Map<String, Double> priceTable) im
             }
             PriceCalculator.setClientPriceTable(table);
 
-            if (net.minecraft.client.Minecraft.getInstance().player.containerMenu instanceof com.economymod.gui.menu.EconomyTradeMenu menu) {
+            // ЛОГ ДЛЯ ДЕБАГА: Проверяем, видит ли клиент открытое меню при получении пакета
+            var container = net.minecraft.client.Minecraft.getInstance().player.containerMenu;
+            EconomyMod.LOGGER.info("ЭКОНОМИКА КЛИЕНТ: Получен пакет цен! Открытый контейнер у игрока: {}", container.getClass().getSimpleName());
+
+            if (container instanceof com.economymod.gui.menu.EconomyTradeMenu menu) {
                 menu.refreshPrices();
+                EconomyMod.LOGGER.info("ЭКОНОМИКА КЛИЕНТ: Цены в GUI успешно обновлены на динамические!");
+            } else {
+                EconomyMod.LOGGER.warn("ЭКОНОМИКА КЛИЕНТ: Пакет проигнорирован, так как кастомное меню еще не открыто!");
             }
         });
     }

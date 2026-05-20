@@ -25,13 +25,13 @@ public class VillagerAttachment implements IEconomicActor {
     public static final int INVENTORY_SIZE = 36;
     private final SimpleContainer inventory = new SimpleContainer(INVENTORY_SIZE);
     private final Villager villager;
-    private double budget; // ИЗМЕНЕНО: double
+    private double budget;
     private boolean wasLootGenerated = false;
     private BlockPos personalChestPos = null;
 
     private final DesireProcessor desireProcessor = new DesireProcessor(this);
-    private List<Demand> cachedDemands = new ArrayList<>();
-    private List<Offer> cachedOffers = new ArrayList<>();
+    private final List<Demand> cachedDemands = new ArrayList<>();
+    private final List<Offer> cachedOffers = new ArrayList<>();
     private int recalcCooldown = 0;
 
     public VillagerAttachment(Villager villager) {
@@ -44,16 +44,33 @@ public class VillagerAttachment implements IEconomicActor {
     }
 
     public boolean hasPickaxe() {
+        transferVanillaToCustom(); // На всякий случай проверяем инвентарь при поиске кирки
         for (int i = 0; i < INVENTORY_SIZE; i++) {
             if (inventory.getItem(i).getItem() instanceof PickaxeItem) return true;
         }
         return false;
     }
 
+    // НОВЫЙ МЕТОД: Забирает предметы из скрытого ванильного инвентаря жителя и кладет в кастомный
+    public void transferVanillaToCustom() {
+        if (villager == null) return;
+        SimpleContainer vanillaInv = villager.getInventory();
+        for (int i = 0; i < vanillaInv.getContainerSize(); i++) {
+            ItemStack stack = vanillaInv.getItem(i);
+            if (!stack.isEmpty()) {
+                // Пытаемся добавить предмет в наш 36-слотовый инвентарь
+                ItemStack remaining = inventory.addItem(stack.copy());
+                // Возвращаем остаток (если наш инвентарь забит) обратно в ванильный
+                vanillaInv.setItem(i, remaining);
+            }
+        }
+    }
+
     public BlockPos getPersonalChestPos() { return personalChestPos; }
     public void setPersonalChestPos(BlockPos pos) { this.personalChestPos = pos; }
 
     public void fillInitialLoot() {
+        transferVanillaToCustom(); // Перед проверкой лута забираем ванильные вещи
         if (wasLootGenerated) return;
         VillagerProfession prof = getProfession();
         if (prof != VillagerProfession.NONE && prof != VillagerProfession.NITWIT) {
@@ -81,6 +98,7 @@ public class VillagerAttachment implements IEconomicActor {
     }
 
     public List<Integer> getTrashSlots() {
+        transferVanillaToCustom();
         List<Integer> trash = new ArrayList<>();
         VillagerProfession prof = getProfession();
         for (int i = 0; i < INVENTORY_SIZE; i++) {
@@ -99,15 +117,18 @@ public class VillagerAttachment implements IEconomicActor {
         return false;
     }
 
-    @Override public SimpleContainer getInventory() { return inventory; }
+    @Override public SimpleContainer getInventory() {
+        transferVanillaToCustom(); // Всегда сливаем инвентарь при запросе контейнера
+        return inventory;
+    }
 
-    // ИСПРАВЛЕНО: Геттер и сеттер теперь используют double
     @Override public double getBalance() { return budget; }
     @Override public void setBalance(double balance) { this.budget = balance; }
 
     @Override public String getActorDisplayName() { return villager != null ? villager.getDisplayName().getString() : "Villager"; }
 
     public List<Demand> getDemands() {
+        transferVanillaToCustom();
         if (recalcCooldown > 0) { recalcCooldown--; return cachedDemands; }
         recalcCooldown = 100;
         cachedDemands.clear();
@@ -121,6 +142,7 @@ public class VillagerAttachment implements IEconomicActor {
     }
 
     public List<Offer> getOffers() {
+        transferVanillaToCustom();
         cachedOffers.clear();
         VillagerProfession prof = getProfession();
         for (int i = 0; i < INVENTORY_SIZE; i++) {
@@ -143,25 +165,29 @@ public class VillagerAttachment implements IEconomicActor {
 
     public CompoundTag serializeNBT(HolderLookup.Provider provider) {
         CompoundTag tag = new CompoundTag();
-        tag.putDouble("Budget", budget); // ИЗМЕНЕНО: putDouble
+        tag.putDouble("Budget", budget);
         tag.putBoolean("WasLootGenerated", wasLootGenerated);
         if (personalChestPos != null) tag.putLong("ChestPos", personalChestPos.asLong());
         ListTag invList = new ListTag();
         for (int i = 0; i < INVENTORY_SIZE; i++) {
             ItemStack s = inventory.getItem(i);
             if (!s.isEmpty()) {
-                CompoundTag slotTag = new CompoundTag();
+                // ИСПРАВЛЕНО: Получаем тег напрямую из метода save() и записываем в него слот
+                CompoundTag slotTag = (CompoundTag) s.save(provider);
                 slotTag.putInt("Slot", i);
-                s.save(provider, slotTag);
                 invList.add(slotTag);
             }
         }
         tag.put("Inventory", invList);
+
+        com.economymod.EconomyMod.LOGGER.info("ЭКОНОМИКА СОХРАНЕНИЕ: Данные жителя [{}] успешно записаны на диск! Бюджет: {}⛀, Слотов заполнено: {}",
+                getActorDisplayName(), budget, invList.size());
+
         return tag;
     }
 
     public void deserializeNBT(HolderLookup.Provider provider, CompoundTag tag) {
-        budget = tag.getDouble("Budget"); // ИЗМЕНЕНО: getDouble
+        budget = tag.getDouble("Budget");
         wasLootGenerated = tag.getBoolean("WasLootGenerated");
         if (tag.contains("ChestPos")) personalChestPos = BlockPos.of(tag.getLong("ChestPos"));
         inventory.clearContent();
@@ -173,6 +199,10 @@ public class VillagerAttachment implements IEconomicActor {
                 inventory.setItem(slot, ItemStack.parse(provider, slotTag).orElse(ItemStack.EMPTY));
             }
         }
+
+        // ЛОГ ДЛЯ ДЕБАГА: Мы увидим, когда игра считывает жителя из файла сохранения мира
+        com.economymod.EconomyMod.LOGGER.info("ЭКОНОМИКА ЗАГРУЗКА: Данные жителя [{}] успешно считаны с диска! Бюджет: {}⛀, Предметов восстановлено: {}",
+                getActorDisplayName(), budget, invList.size());
     }
 
     public boolean wasLootGenerated() { return wasLootGenerated; }

@@ -4,6 +4,7 @@ import com.economymod.EconomyMod;
 import com.economymod.attachment.PlayerEconomyAttachment;
 import com.economymod.attachment.VillagerAttachment;
 import com.economymod.attachment.VillagerAttachmentSerializer;
+import net.minecraft.world.entity.npc.Villager; // Добавлено
 import net.neoforged.neoforge.attachment.AttachmentType;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import net.neoforged.neoforge.registries.NeoForgeRegistries;
@@ -21,9 +22,15 @@ public class ModAttachments {
                     .copyOnDeath()
                     .build());
 
+    // ИСПРАВЛЕНО: Передаем реального жителя (holder) в конструктор вместо null
     public static final DeferredHolder<AttachmentType<?>, AttachmentType<VillagerAttachment>>
             VILLAGER = ATTACHMENT_TYPES.register("villager",
-            () -> AttachmentType.builder(() -> new VillagerAttachment(null))
+            () -> AttachmentType.builder(holder -> {
+                        if (holder instanceof Villager villagerEntity) {
+                            return new VillagerAttachment(villagerEntity);
+                        }
+                        return new VillagerAttachment(null);
+                    })
                     .serialize(new VillagerAttachmentSerializer())
                     .build());
 }

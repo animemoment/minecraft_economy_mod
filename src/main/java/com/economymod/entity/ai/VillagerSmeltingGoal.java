@@ -8,6 +8,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
@@ -18,7 +19,7 @@ import java.util.EnumSet;
 public class VillagerSmeltingGoal extends Goal {
     private final Villager villager;
     private BlockPos furnacePos;
-    private BlockPos standPos; // Где житель будет стоять
+    private BlockPos standPos;
     private int waitTicks = 0;
     private boolean isWaitingForSmelt = false;
 
@@ -31,8 +32,6 @@ public class VillagerSmeltingGoal extends Goal {
     public boolean canUse() {
         if (villager.level().getGameTime() % 40 != 0) return false;
 
-        // ЭКОНОМИЧЕСКАЯ ЦЕЛЕСООБРАЗНОСТЬ:
-        // Уголь плавит 8 предметов. Житель не начнет плавку, пока не накопит 8 руды.
         if (!hasEnoughResourcesForProfit()) return false;
 
         BlockPos current = villager.blockPosition();
@@ -61,12 +60,10 @@ public class VillagerSmeltingGoal extends Goal {
             if (isOre(inv.getItem(i))) oreCount += inv.getItem(i).getCount();
         }
 
-        // Выгода: минимум 8 руды для 1 угля
         return oreCount >= 8 && hasFuel;
     }
 
     private BlockPos findStandPosition(BlockPos furnacePos) {
-        // Ищем свободный блок рядом с печью (Север, Юг, Восток, Запад)
         for (Direction dir : Direction.Plane.HORIZONTAL) {
             BlockPos p = furnacePos.relative(dir);
             if (villager.level().getBlockState(p).isAir() && villager.level().getBlockState(p.above()).isAir()) {
@@ -97,12 +94,10 @@ public class VillagerSmeltingGoal extends Goal {
             BlockEntity be = villager.level().getBlockEntity(furnacePos);
             if (be instanceof AbstractFurnaceBlockEntity furnace) {
 
-                // 1. Загрузка (Кладем сразу 8 штук для выгоды)
                 if (!isWaitingForSmelt) {
                     interactWithFurnace(furnace);
                     isWaitingForSmelt = true;
                 }
-                // 2. Ожидание и сбор
                 else {
                     waitTicks++;
                     if (waitTicks % 20 == 0 && villager.level() instanceof ServerLevel sl) {
@@ -110,8 +105,6 @@ public class VillagerSmeltingGoal extends Goal {
                                 villager.getX(), villager.getY() + 2.1, villager.getZ(), 2, 0.1, 0.1, 0.1, 0.02);
                     }
 
-                    // Если в печи пусто (все сгорело) и в выходе что-то есть - забираем
-                    // Или если печь перестала гореть
                     if (!furnace.getItem(2).isEmpty() && furnace.getItem(0).isEmpty()) {
                         collectResult(furnace);
                         isWaitingForSmelt = false;
@@ -154,6 +147,9 @@ public class VillagerSmeltingGoal extends Goal {
             }
         }
 
+        // ИСПРАВЛЕНО: Вызываем setChanged(), чтобы печка поняла, что в неё положили ресурсы, и начала плавить
+        furnace.setChanged();
+
         villager.level().playSound(null, furnacePos, net.minecraft.sounds.SoundEvents.VILLAGER_WORK_ARMORER,
                 net.minecraft.sounds.SoundSource.NEUTRAL, 1.0F, 1.0F);
     }
@@ -162,10 +158,12 @@ public class VillagerSmeltingGoal extends Goal {
         var att = villager.getData(ModAttachments.VILLAGER.get());
         ItemStack result = furnace.getItem(2);
         if (!result.isEmpty()) {
-            // Забираем ВЕСЬ стак из выхода
             ItemStack collected = result.copy();
             att.getInventory().addItem(collected);
             furnace.setItem(2, ItemStack.EMPTY);
+
+            // ИСПРАВЛЕНО: Вызываем setChanged() после очистки слота выхода
+            furnace.setChanged();
 
             com.economymod.EconomyMod.LOGGER.info("ЭКОНОМИКА: {} переплавил 8 руды с макс. выгодой!", villager.getName().getString());
             villager.level().playSound(null, furnacePos, net.minecraft.sounds.SoundEvents.ITEM_PICKUP,

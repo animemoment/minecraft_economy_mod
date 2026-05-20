@@ -4,7 +4,9 @@ import com.economymod.EconomyMod;
 import com.economymod.economy.IEconomicActor;
 import com.economymod.gui.menu.EconomyTradeMenu;
 import com.economymod.registry.ModAttachments;
+import com.economymod.world.VillageNetworkData; // Добавлено
 import io.netty.buffer.ByteBuf;
+import net.minecraft.core.BlockPos; // Добавлено
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
@@ -44,12 +46,20 @@ public record ServerboundRequestInitialSyncPacket() implements CustomPacketPaylo
             for (int i = 0; i < 36; i++) items.add(owner.getInventory().getItem(i).copy());
             PacketDistributor.sendToPlayer(sp, new ClientboundOwnerInventorySyncPacket(items, owner.getBalance()));
 
-            // 3. Таблица цен (double)
+            // 3. Таблица цен (ИСПРАВЛЕНО: Рассчитываем именно ДИНАМИЧЕСКИЕ цены для этой деревни)
             var manager = EconomyMod.getEconomyManager();
             if (manager != null && manager.getPriceTable() != null) {
                 Map<String, Double> priceTableStrings = new HashMap<>();
+
+                // Находим деревню по координатам торговца на сервере
+                BlockPos pos = owner.getPosition();
+                VillageNetworkData.VillageInfo villageInfo = (pos != null) ?
+                        VillageNetworkData.get(sp.serverLevel()).getVillageInfo(pos) : null;
+
                 manager.getPriceTable().getAllPrices().forEach((item, price) -> {
-                    priceTableStrings.put(BuiltInRegistries.ITEM.getKey(item).toString(), price);
+                    // Рассчитываем динамическую базовую цену с учетом спроса, предложения и инфляции этой деревни
+                    double dynamicBase = com.economymod.economy.PriceCalculator.calculateDynamicPrice(new ItemStack(item), villageInfo);
+                    priceTableStrings.put(BuiltInRegistries.ITEM.getKey(item).toString(), dynamicBase);
                 });
                 PacketDistributor.sendToPlayer(sp, new ClientboundFullPriceTablePacket(priceTableStrings));
             }

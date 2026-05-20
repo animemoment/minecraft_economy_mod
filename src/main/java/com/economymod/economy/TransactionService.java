@@ -10,14 +10,12 @@ public class TransactionService {
                                              ItemStack item, double pricePerItem, int amount) {
         if (amount <= 0) return false;
 
-        // Расчет в double для сохранения копеек
         double totalPrice = pricePerItem * (double)amount;
 
         if (!buyer.canAfford(totalPrice)) return false;
         if (!canRemoveItems(seller, item, amount)) return false;
         if (!canAddItems(buyer, item, amount)) return false;
 
-        // Проведение платежа
         buyer.setBalance(buyer.getBalance() - totalPrice);
         seller.setBalance(seller.getBalance() + totalPrice);
 
@@ -35,18 +33,20 @@ public class TransactionService {
         return countItems(inv, item) >= amount;
     }
 
+    // ИСПРАВЛЕНО: Умный расчет свободного места во всех слотах суммарно
     public static boolean canAddItems(IEconomicActor actor, ItemStack item, int amount) {
         if (actor instanceof PlayerActor playerActor) {
             Inventory inv = playerActor.getPlayerInventory();
-            int freeSlot = inv.getFreeSlot();
-            if (freeSlot >= 0) return true;
+            int free = 0;
             for (int i = 0; i < inv.getContainerSize(); i++) {
                 ItemStack s = inv.getItem(i);
-                if (ItemStack.isSameItemSameComponents(s, item) && s.getCount() + amount <= s.getMaxStackSize()) {
-                    return true;
+                if (s.isEmpty()) {
+                    free += item.getMaxStackSize();
+                } else if (ItemStack.isSameItemSameComponents(s, item)) {
+                    free += item.getMaxStackSize() - s.getCount();
                 }
             }
-            return false;
+            return free >= amount;
         }
         SimpleContainer inv = actor.getInventory();
         if (inv == null) return false;
@@ -71,6 +71,7 @@ public class TransactionService {
         if (inv != null) removeFromInventory(inv, item, amount);
     }
 
+    // ИСПРАВЛЕНО: Используем безопасный ванильный метод SimpleContainer.addItem()
     public static void addItems(IEconomicActor actor, ItemStack item, int amount) {
         if (actor instanceof PlayerActor playerActor) {
             ItemStack copy = item.copy();
@@ -82,16 +83,12 @@ public class TransactionService {
         if (inv != null) {
             ItemStack copy = item.copy();
             copy.setCount(amount);
-            for (int i = 0; i < inv.getContainerSize(); i++) {
-                ItemStack s = inv.getItem(i);
-                if (s.isEmpty()) { inv.setItem(i, copy); return; }
-                else if (ItemStack.isSameItemSameComponents(s, copy) && s.getCount() + copy.getCount() <= copy.getMaxStackSize()) {
-                    s.grow(copy.getCount()); return;
-                }
-            }
+            // Позволяем ванильному коду безопасно раскидать предметы по всем слотам
+            inv.addItem(copy);
         }
     }
 
+    // ИСПРАВЛЕНО: Безопасный метод с возвратом результата
     public static boolean addItemsSafe(IEconomicActor actor, ItemStack item, int amount) {
         if (actor instanceof PlayerActor playerActor) {
             ItemStack copy = item.copy();
@@ -102,14 +99,8 @@ public class TransactionService {
         if (inv == null) return false;
         ItemStack copy = item.copy();
         copy.setCount(amount);
-        for (int i = 0; i < inv.getContainerSize(); i++) {
-            ItemStack s = inv.getItem(i);
-            if (s.isEmpty()) { inv.setItem(i, copy); return true; }
-            else if (ItemStack.isSameItemSameComponents(s, copy) && s.getCount() + copy.getCount() <= copy.getMaxStackSize()) {
-                s.grow(copy.getCount()); return true;
-            }
-        }
-        return false;
+        ItemStack remaining = inv.addItem(copy);
+        return remaining.isEmpty(); // Возвращает true, если всё успешно влезло
     }
 
     private static int countItems(SimpleContainer inv, ItemStack item) {

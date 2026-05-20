@@ -28,7 +28,7 @@ public class EconomyManager {
             tickCounter = 0;
             VillageNetworkData data = VillageNetworkData.get(level);
             for (VillageNetworkData.VillageInfo info : data.getAllVillages()) {
-                info.recalcFactors(level);
+                info.recalcFactors(level, false);
                 info.updateDailyEconomy();
             }
             data.setDirty();

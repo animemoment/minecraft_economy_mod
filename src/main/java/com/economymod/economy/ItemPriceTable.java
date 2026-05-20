@@ -16,7 +16,6 @@ public class ItemPriceTable {
     private final Map<Item, Double> prices = new HashMap<>();
     private final RegistryAccess registryAccess;
 
-    48x
     public ItemPriceTable(RecipeManager rm, ServerLevel level) {
         this.registryAccess = level.registryAccess();
 

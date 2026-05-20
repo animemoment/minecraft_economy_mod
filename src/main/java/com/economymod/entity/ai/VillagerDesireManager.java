@@ -1,5 +1,7 @@
 package com.animemoment.economy.ai;
 
+import com.economymod.attachment.VillagerAttachment;
+import com.economymod.registry.ModAttachments;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.item.Item;
@@ -25,8 +27,12 @@ public class VillagerDesireManager {
         return 0.1; // Минимальный интерес к прочим вещам
     }
 
+    // ИСПРАВЛЕНО: Теперь считаем предметы в кастомном рюкзаке жителя (мода), а не в ванильном кармане
     private static int getItemCount(Villager villager, Item item) {
-        SimpleContainer inv = villager.getInventory();
+        VillagerAttachment att = villager.getData(ModAttachments.VILLAGER.get());
+        if (att == null) return 0;
+
+        SimpleContainer inv = att.getInventory();
         int total = 0;
         for (int i = 0; i < inv.getContainerSize(); i++) {
             if (inv.getItem(i).is(item)) total += inv.getItem(i).getCount();

@@ -27,6 +27,7 @@ public record ClientboundBalanceSyncPacket(double balance, double traderBudget) 
         context.enqueueWork(() -> {
             var player = Minecraft.getInstance().player;
             if (player != null && player.containerMenu instanceof EconomyTradeMenu menu) {
+                // Теперь эти методы в меню принимают double, ошибки не будет
                 menu.setClientBalance(packet.balance());
                 menu.setClientBudget(packet.traderBudget());
             }

@@ -31,6 +31,7 @@ public record ClientboundOwnerInventorySyncPacket(List<ItemStack> inventory, dou
         context.enqueueWork(() -> {
             var player = Minecraft.getInstance().player;
             if (player != null && player.containerMenu instanceof EconomyTradeMenu menu) {
+                // Метод updateFromServer теперь принимает double
                 menu.updateFromServer(packet.inventory(), packet.budget());
             }
         });

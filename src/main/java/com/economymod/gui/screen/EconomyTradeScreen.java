@@ -106,12 +106,14 @@ public class EconomyTradeScreen extends AbstractContainerScreen<EconomyTradeMenu
     protected void renderLabels(GuiGraphics g, int mx, int my) {
         g.fill(0, 0, imageWidth, 12, 0x80000000);
 
-        long bal = Math.max(0, menu.getClientBalance());
-        long bud = Math.max(0, menu.getClientBudget());
+        // ИСПРАВЛЕНО: Используем double вместо long
+        double bal = Math.max(0.0, menu.getClientBalance());
+        double bud = Math.max(0.0, menu.getClientBudget());
         String ownerName = menu.getOwnerActor() != null ? menu.getOwnerActor().getActorDisplayName() : "Owner";
 
-        Component youText = Component.literal("You: " + bal + "⛀").withStyle(ChatFormatting.GREEN);
-        Component ownerText = Component.literal(ownerName + ": " + bud + "⛀").withStyle(ChatFormatting.GOLD);
+        // ИСПРАВЛЕНО: Форматирование до 2 знаков после запятой
+        Component youText = Component.literal(String.format("You: %.2f⛀", bal)).withStyle(ChatFormatting.GREEN);
+        Component ownerText = Component.literal(String.format("%s: %.2f⛀", ownerName, bud)).withStyle(ChatFormatting.GOLD);
 
         g.drawString(font, youText, 5, 2, 0x00FF00, false);
         int ownerWidth = font.width(ownerText);

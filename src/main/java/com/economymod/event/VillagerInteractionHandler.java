@@ -18,21 +18,27 @@ public class VillagerInteractionHandler {
 
     @SubscribeEvent
     public static void onEntityInteract(PlayerInteractEvent.EntityInteract event) {
-        if (event.getTarget() instanceof Villager villager && event.getEntity() instanceof ServerPlayer serverPlayer) {
+        if (event.getTarget() instanceof Villager villager) {
+            // ИСПРАВЛЕНО: Отменяем событие на КЛИЕНТЕ и СЕРВЕРЕ, чтобы не моргал ванильный GUI
             event.setCanceled(true);
-            serverPlayer.openMenu(new MenuProvider() {
-                @Override
-                public Component getDisplayName() {
-                    return villager.getDisplayName();
-                }
+            event.setCancellationResult(net.minecraft.world.InteractionResult.CONSUME); // Анимация руки
 
-                @Nullable
-                @Override
-                public AbstractContainerMenu createMenu(int id, Inventory inv, Player player) {
-                    VillagerAttachment att = villager.getData(ModAttachments.VILLAGER.get());
-                    return new EconomyTradeMenu(id, inv, att);
-                }
-            });
+            // Открываем кастомное меню только на сервере
+            if (event.getEntity() instanceof ServerPlayer serverPlayer) {
+                serverPlayer.openMenu(new MenuProvider() {
+                    @Override
+                    public Component getDisplayName() {
+                        return villager.getDisplayName();
+                    }
+
+                    @Nullable
+                    @Override
+                    public AbstractContainerMenu createMenu(int id, Inventory inv, Player player) {
+                        VillagerAttachment att = villager.getData(ModAttachments.VILLAGER.get());
+                        return new EconomyTradeMenu(id, inv, att);
+                    }
+                });
+            }
         }
     }
 }

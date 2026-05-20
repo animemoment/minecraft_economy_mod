@@ -9,15 +9,17 @@ import com.economymod.network.ClientboundFullPriceTablePacket;
 import com.economymod.network.ClientboundOwnerInventorySyncPacket;
 import com.economymod.network.ClientboundPriceUpdatePacket;
 import com.economymod.registry.ModMenus;
+import com.economymod.world.VillageNetworkData; // Добавлено
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ServerLevel; // Добавлено
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.*;
@@ -37,8 +39,9 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
     private final PlayerActor playerActor;
     private final SimpleContainer ownerInventory;
     private final double[] prices;
-    private long clientBalance;
-    private long clientBudget;
+    private double clientBalance;
+    private double clientBudget;
+    private final VillageNetworkData.VillageInfo villageInfo; // ИЗМЕНЕНО: Храним информацию о деревне
     public final SimpleContainer buyContainer = new SimpleContainer(9);
     public final SimpleContainer sellContainer = new SimpleContainer(9);
 
@@ -49,12 +52,19 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
     public EconomyTradeMenu(int id, Inventory playerInv, IEconomicActor owner) {
         super(ModMenus.ECONOMY_TRADE_MENU.get(), id);
         if (owner instanceof com.economymod.attachment.VillagerAttachment va) {
-            va.forceReinitialize();
+            va.fillInitialLoot();
         }
         this.ownerActor = owner;
         this.playerActor = new PlayerActor(playerInv.player);
         this.ownerInventory = owner != null ? owner.getInventory() : new SimpleContainer(36);
         this.prices = new double[OWNER_SLOTS];
+
+        // ИЗМЕНЕНО: Получаем данные о деревне на стороне сервера
+        if (playerInv.player.level() instanceof ServerLevel sl && owner != null && owner.getPosition() != null) {
+            this.villageInfo = VillageNetworkData.get(sl).getVillageInfo(owner.getPosition());
+        } else {
+            this.villageInfo = null;
+        }
 
         // Слоты владельца (0..35)
         for (int r = 0; r < 4; r++)
@@ -90,7 +100,8 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
                 int slot = c + r * 3;
                 this.addSlot(new Slot(sellContainer, slot, 196 + c * 18, 93 + r * 18) {
                     @Override public boolean mayPlace(ItemStack stack) {
-                        return PriceCalculator.getSellPrice(stack, null) > 0;
+                        // ИСПРАВЛЕНО: передаем информацию о деревне
+                        return PriceCalculator.getSellPrice(stack, villageInfo) > 0;
                     }
                 });
             }
@@ -101,9 +112,9 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
         if (owner != null && playerInv.player instanceof ServerPlayer sp) {
             List<ItemStack> items = new ArrayList<>();
             for (int i = 0; i < OWNER_SLOTS; i++) items.add(ownerInventory.getItem(i).copy());
-            long budget = owner.getBalance();
+            double budget = owner.getBalance();
             PacketDistributor.sendToPlayer(sp, new ClientboundOwnerInventorySyncPacket(items, budget));
-            long playerBalance = playerActor.getBalance();
+            double playerBalance = playerActor.getBalance();
             PacketDistributor.sendToPlayer(sp, new ClientboundBalanceSyncPacket(playerBalance, budget));
             this.clientBalance = playerBalance;
             this.clientBudget = budget;
@@ -117,14 +128,16 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
             }
             PacketDistributor.sendToPlayer(sp, new ClientboundPriceUpdatePacket(pricesMap));
 
-            // Отправка полной таблицы цен клиенту
+            // ИСПРАВЛЕНО: Отправка ДИНАМИЧЕСКИХ цен этой деревни клиенту вместо базовых
             if (PriceCalculator.getPriceTable() != null) {
-                Map<String, Double> fullTable = new HashMap<>();
+                Map<String, Double> dynamicPriceTable = new HashMap<>();
                 PriceCalculator.getPriceTable().getAllPrices().forEach((item, price) -> {
+                    // Рассчитываем динамическую базовую цену для этой деревни
+                    double dynamicBase = PriceCalculator.calculateDynamicPrice(new ItemStack(item), villageInfo);
                     ResourceLocation key = BuiltInRegistries.ITEM.getKey(item);
-                    fullTable.put(key.toString(), price);
+                    dynamicPriceTable.put(key.toString(), dynamicBase);
                 });
-                PacketDistributor.sendToPlayer(sp, new ClientboundFullPriceTablePacket(fullTable));
+                PacketDistributor.sendToPlayer(sp, new ClientboundFullPriceTablePacket(dynamicPriceTable));
             }
 
             EconomyMod.LOGGER.info("Sent initial sync for trader: inventory={}, prices={}", items.size(), pricesMap.size());
@@ -135,7 +148,9 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
         for (int i = 0; i < OWNER_SLOTS; i++) {
             ItemStack st = ownerInventory.getItem(i);
             if (!st.isEmpty()) {
-                prices[i] = PriceCalculator.getBuyPrice(st, null);
+                prices[i] = PriceCalculator.getBuyPrice(st, villageInfo);
+                // ЛОГ ДЛЯ ДЕБАГА: Смотрим, какую цену рассчитал сервер
+                EconomyMod.LOGGER.info("ЭКОНОМИКА СЕРВЕР: Слот {}: {} -> рассчитанная цена = {}", i, st.getItem().getDescriptionId(), prices[i]);
             } else {
                 prices[i] = 0;
             }
@@ -144,25 +159,27 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
 
     public double getPrice(int slot) { return prices[slot]; }
 
+    // ИСПРАВЛЕНО: использует villageInfo
     public double getTotalBuyCost() {
         double total = 0;
         for (int i = 0; i < 9; i++) {
             ItemStack stack = buyContainer.getItem(i);
-            if (!stack.isEmpty()) total += PriceCalculator.getBuyPrice(stack, null) * stack.getCount();
+            if (!stack.isEmpty()) total += PriceCalculator.getBuyPrice(stack, villageInfo) * stack.getCount();
         }
         return total;
     }
 
+    // ИСПРАВЛЕНО: использует villageInfo
     public double getTotalSellValue() {
         double total = 0;
         for (int i = 0; i < 9; i++) {
             ItemStack stack = sellContainer.getItem(i);
-            if (!stack.isEmpty()) total += PriceCalculator.getSellPrice(stack, null) * stack.getCount();
+            if (!stack.isEmpty()) total += PriceCalculator.getSellPrice(stack, villageInfo) * stack.getCount();
         }
         return total;
     }
 
-    public void updateFromServer(List<ItemStack> inventory, long budget) {
+    public void updateFromServer(List<ItemStack> inventory, double budget) {
         for (int i = 0; i < Math.min(inventory.size(), OWNER_SLOTS); i++)
             ownerInventory.setItem(i, inventory.get(i));
         this.clientBudget = budget;
@@ -176,10 +193,10 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
         });
     }
 
-    public long getClientBalance() { return clientBalance; }
-    public long getClientBudget() { return clientBudget; }
-    public void setClientBalance(long balance) { this.clientBalance = balance; }
-    public void setClientBudget(long budget) { this.clientBudget = budget; }
+    public double getClientBalance() { return clientBalance; }
+    public double getClientBudget() { return clientBudget; }
+    public void setClientBalance(double balance) { this.clientBalance = balance; }
+    public void setClientBudget(double budget) { this.clientBudget = budget; }
     public IEconomicActor getOwnerActor() { return ownerActor; }
     public PlayerActor getPlayerActor() { return playerActor; }
 
