@@ -14,5 +14,8 @@ public class ClientEventHandler {
 
     public static void registerEntityRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerEntityRenderer(ModEntities.ECONOMY_TRADER.get(), EconomyTraderRenderer::new);
+
+        // ДОБАВЛЕНО: Регистрация рендерера для нашего воина-защитника
+        event.registerEntityRenderer(ModEntities.VILLAGE_GUARD.get(), VillageGuardRenderer::new);
     }
 }

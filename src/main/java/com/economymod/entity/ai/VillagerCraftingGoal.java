@@ -3,7 +3,7 @@ package com.economymod.entity.ai;
 import com.economymod.attachment.VillagerAttachment;
 import com.economymod.registry.ModAttachments;
 import net.minecraft.core.BlockPos;
-import net.minecraft.server.level.ServerLevel; // ДОБАВЛЕНО
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.ItemStack;
@@ -61,6 +61,11 @@ public class VillagerCraftingGoal extends Goal {
     @Override
     public void tick() {
         if (tablePos == null) return;
+
+        // ИСПРАВЛЕНО: Блокируем ванильный ИИ движения и взгляда
+        villager.getBrain().eraseMemory(net.minecraft.world.entity.ai.memory.MemoryModuleType.WALK_TARGET);
+        villager.getBrain().eraseMemory(net.minecraft.world.entity.ai.memory.MemoryModuleType.LOOK_TARGET);
+
         villager.getLookControl().setLookAt(tablePos.getX() + 0.5, tablePos.getY() + 1.0, tablePos.getZ() + 0.5);
 
         if (villager.distanceToSqr(tablePos.getX() + 0.5, tablePos.getY(), tablePos.getZ() + 0.5) < 3.0) {

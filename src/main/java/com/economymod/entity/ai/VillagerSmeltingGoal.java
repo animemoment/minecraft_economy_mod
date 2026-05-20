@@ -86,6 +86,10 @@ public class VillagerSmeltingGoal extends Goal {
     public void tick() {
         if (furnacePos == null || standPos == null) return;
 
+        // ИСПРАВЛЕНО: Блокируем ванильный ИИ движения и взгляда
+        villager.getBrain().eraseMemory(net.minecraft.world.entity.ai.memory.MemoryModuleType.WALK_TARGET);
+        villager.getBrain().eraseMemory(net.minecraft.world.entity.ai.memory.MemoryModuleType.LOOK_TARGET);
+
         villager.getLookControl().setLookAt(furnacePos.getX() + 0.5, furnacePos.getY() + 1.0, furnacePos.getZ() + 0.5);
         double dist = villager.distanceToSqr(standPos.getX() + 0.5, standPos.getY(), standPos.getZ() + 0.5);
 
@@ -121,7 +125,6 @@ public class VillagerSmeltingGoal extends Goal {
         var att = villager.getData(ModAttachments.VILLAGER.get());
         SimpleContainer inv = att.getInventory();
 
-        // Кладем 8 руды
         int oresToPut = 8;
         for (int i = 0; i < inv.getContainerSize() && oresToPut > 0; i++) {
             ItemStack stack = inv.getItem(i);
@@ -135,7 +138,6 @@ public class VillagerSmeltingGoal extends Goal {
             }
         }
 
-        // Кладем 1 уголь
         for (int i = 0; i < inv.getContainerSize(); i++) {
             ItemStack stack = inv.getItem(i);
             if (stack.is(Items.COAL) || stack.is(Items.CHARCOAL)) {
@@ -147,7 +149,6 @@ public class VillagerSmeltingGoal extends Goal {
             }
         }
 
-        // ИСПРАВЛЕНО: Вызываем setChanged(), чтобы печка поняла, что в неё положили ресурсы, и начала плавить
         furnace.setChanged();
 
         villager.level().playSound(null, furnacePos, net.minecraft.sounds.SoundEvents.VILLAGER_WORK_ARMORER,
@@ -162,7 +163,6 @@ public class VillagerSmeltingGoal extends Goal {
             att.getInventory().addItem(collected);
             furnace.setItem(2, ItemStack.EMPTY);
 
-            // ИСПРАВЛЕНО: Вызываем setChanged() после очистки слота выхода
             furnace.setChanged();
 
             com.economymod.EconomyMod.LOGGER.info("ЭКОНОМИКА: {} переплавил 8 руды с макс. выгодой!", villager.getName().getString());

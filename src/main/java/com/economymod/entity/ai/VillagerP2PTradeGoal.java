@@ -27,11 +27,18 @@ public class VillagerP2PTradeGoal extends Goal {
 
     @Override
     public boolean canUse() {
+        // ИСПРАВЛЕНО: Кулдаун увеличен до 2400 тиков (2 минуты), чтобы остановить бесконечный спам торговли
         if (cooldown > 0) { cooldown--; return false; }
-        if (villager.level().getGameTime() % 40 != 0) return false;
+        if (villager.level().getGameTime() % 80 != 0) return false;
+
+        var myAtt = villager.getData(ModAttachments.VILLAGER.get());
+        if (myAtt == null) return false;
+
+        // ЭКОНОМИЧЕСКАЯ ЦЕЛЕСООБРАЗНОСТЬ: Житель идет торговать только если у него РЕАЛЬНО есть излишки на продажу
+        if (myAtt.getOffers().isEmpty()) return false;
 
         List<Villager> neighbors = villager.level().getEntitiesOfClass(
-                Villager.class, new AABB(villager.blockPosition()).inflate(10.0),
+                Villager.class, new AABB(villager.blockPosition()).inflate(8.0),
                 v -> v != villager && v.isAlive()
         );
 
@@ -42,13 +49,14 @@ public class VillagerP2PTradeGoal extends Goal {
         return false;
     }
 
-    @Override public void start() { this.cooldown = 100; }
+    // ИСПРАВЛЕНО: Задаем жесткий кулдаун на 2 минуты после старта попытки торговли
+    @Override public void start() { this.cooldown = 2400; }
 
     @Override
     public void tick() {
         if (partner == null || !partner.isAlive()) { partner = null; return; }
         villager.getLookControl().setLookAt(partner, 30.0F, 30.0F);
-        villager.getNavigation().moveTo(partner, 0.6D);
+        villager.getNavigation().moveTo(partner, 0.5D);
 
         if (villager.distanceToSqr(partner) < 4.0) {
             performTrade();
@@ -67,7 +75,6 @@ public class VillagerP2PTradeGoal extends Goal {
         for (VillagerAttachment.Demand myDemand : myAtt.getDemands()) {
             for (VillagerAttachment.Offer partnerOffer : partnerAtt.getOffers()) {
                 if (ItemStack.isSameItemSameComponents(myDemand.stack, partnerOffer.stack)) {
-                    // ИСПРАВЛЕНО: double
                     double price = PriceCalculator.getBuyPrice(myDemand.stack, info);
                     int amount = Math.min(myDemand.stack.getCount(), partnerOffer.stack.getCount());
 
@@ -75,7 +82,7 @@ public class VillagerP2PTradeGoal extends Goal {
                         if (info != null) info.recordTrade(myDemand.stack.getItem(), amount);
                         level.sendParticles(net.minecraft.core.particles.ParticleTypes.HAPPY_VILLAGER,
                                 villager.getX(), villager.getY() + 2, villager.getZ(), 10, 0.2, 0.2, 0.2, 0.05);
-                        return;
+                        return; // Совершили ОДНУ сделку и мирно разошлись по работам
                     }
                 }
             }
@@ -83,6 +90,6 @@ public class VillagerP2PTradeGoal extends Goal {
     }
 
     @Override public boolean canContinueToUse() {
-        return partner != null && partner.isAlive() && villager.distanceToSqr(partner) < 100.0;
+        return partner != null && partner.isAlive() && villager.distanceToSqr(partner) < 64.0;
     }
 }

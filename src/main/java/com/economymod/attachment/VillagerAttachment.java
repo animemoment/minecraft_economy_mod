@@ -205,6 +205,18 @@ public class VillagerAttachment implements IEconomicActor {
                 getActorDisplayName(), budget, invList.size());
     }
 
+    // ДОБАВЛЕНО: Возвращает активную кирку из рюкзака жителя
+    public ItemStack getActivePickaxe() {
+        transferVanillaToCustom();
+        for (int i = 0; i < INVENTORY_SIZE; i++) {
+            ItemStack stack = inventory.getItem(i);
+            if (stack.getItem() instanceof net.minecraft.world.item.PickaxeItem) {
+                return stack;
+            }
+        }
+        return ItemStack.EMPTY;
+    }
+
     public boolean wasLootGenerated() { return wasLootGenerated; }
     public void setLootGenerated(boolean val) { this.wasLootGenerated = val; }
     @Override public boolean wantsToBuy(ItemStack stack) { return false; }
