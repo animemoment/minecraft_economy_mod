@@ -246,6 +246,16 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
         return ItemStack.EMPTY;
     }
 
+    private final java.util.concurrent.atomic.AtomicBoolean transactionLock = new java.util.concurrent.atomic.AtomicBoolean(false); // ← ДОБАВЛЕНО
+
+    public boolean tryLockTransaction() { // ← ДОБАВЛЕНО
+        return transactionLock.compareAndSet(false, true);
+    }
+
+    public void unlockTransaction() { // ← ДОБАВЛЕНО
+        transactionLock.set(false);
+    }
+
     @Override public boolean stillValid(Player p) { return ownerActor != null; }
 
     @Override public boolean canTakeItemForPickAll(ItemStack stack, Slot slot) {

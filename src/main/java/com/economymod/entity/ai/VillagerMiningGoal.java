@@ -46,10 +46,14 @@ public class VillagerMiningGoal extends Goal {
         VillagerAttachment att = villager.getData(ModAttachments.VILLAGER.get());
         if (att == null) return false;
 
+        // ИСПРАВЛЕНО: Если житель голодает (сытость меньше 3.0) — он бастует и отказывается идти копать!
+        if (att.getHunger() < 3.0) {
+            return false;
+        }
+
         ItemStack pickaxe = att.getActivePickaxe();
         if (pickaxe.isEmpty()) return false;
 
-        // ПРИОРИТЕТ 1: Копаем найденную жилу руды
         if (activeVeinBlockPos != null) {
             BlockState state = villager.level().getBlockState(activeVeinBlockPos);
             if (isMinable(state) && isToolTiredCorrect(pickaxe, state) && isSafeToMine(activeVeinBlockPos)) {
@@ -59,23 +63,10 @@ public class VillagerMiningGoal extends Goal {
             }
         }
 
-        // ИСПРАВЛЕНО: СВЕРХ-ПРИОРИТЕТ! Сканируем 3D-сферу 7х7х7 блоков вокруг ног жителя на ЛЮБЫЕ руды!
-        // Если руда слева, справа, сверху — он бросит всё и пойдет копать её!
-        BlockPos current = villager.blockPosition();
-        for (BlockPos pos : BlockPos.betweenClosed(current.offset(-3, -2, -3), current.offset(3, 3, 3))) {
-            BlockState state = villager.level().getBlockState(pos);
-            if (state.is(Tags.Blocks.ORES) && isMinable(state) && isToolTiredCorrect(pickaxe, state) && isSafeToMine(pos)) {
-                this.targetBlockPos = pos.immutable();
-                this.isBridging = false;
-                return true;
-            }
-        }
-
-        // ИСПРАВЛЕНО: Делаем сундук НЕОБЯЗАТЕЛЬНЫМ. Если сундука нет, точкой старта шахты станут координаты спавна жителя!
         BlockPos chestPos = att.getPersonalChestPos();
         if (chestPos == null) {
-            BlockPos cur = villager.blockPosition();
-            for (BlockPos pos : BlockPos.betweenClosed(cur.offset(-8, -2, -8), current.offset(8, 2, 8))) {
+            BlockPos current = villager.blockPosition();
+            for (BlockPos pos : BlockPos.betweenClosed(current.offset(-8, -2, -8), current.offset(8, 2, 8))) {
                 if (villager.level().getBlockState(pos).is(Blocks.CHEST)) {
                     att.setPersonalChestPos(pos.immutable());
                     chestPos = pos.immutable();
@@ -84,32 +75,8 @@ public class VillagerMiningGoal extends Goal {
             }
         }
 
-        // Если сундука нет — копаем от ног жителя
-        BlockPos startPos = (chestPos != null) ? chestPos.offset(0, 0, 3) : current.immutable();
+        BlockPos startPos = (chestPos != null) ? chestPos.offset(0, 0, 3) : villager.blockPosition().immutable();
 
-        // Сканируем стены вырытой части на наличие обнаженной руды
-        for (int n = 0; n < 100; n++) {
-            int z = startPos.getZ() + n;
-            int y = startPos.getY() - (n / 2);
-            int x = startPos.getX();
-
-            BlockPos floor = new BlockPos(x, y, z);
-            BlockPos head = new BlockPos(x, y + 1, z);
-            BlockPos ceiling = new BlockPos(x, y + 2, z);
-
-            if (villager.level().getBlockState(floor).isAir() && villager.level().getBlockState(head).isAir() && villager.level().getBlockState(ceiling).isAir()) {
-                BlockPos exposedOre = scanExposedTunnelWalls(floor, head, ceiling);
-                if (exposedOre != null && isToolTiredCorrect(pickaxe, villager.level().getBlockState(exposedOre)) && isSafeToMine(exposedOre)) {
-                    this.targetBlockPos = exposedOre;
-                    this.isBridging = false;
-                    return true;
-                }
-            } else {
-                break;
-            }
-        }
-
-        // Основная работа (Копаем туннель)
         for (int n = 0; n < 100; n++) {
             int z = startPos.getZ() + n;
             int y = startPos.getY() - (n / 2);
@@ -123,20 +90,55 @@ public class VillagerMiningGoal extends Goal {
             BlockState stateHead = villager.level().getBlockState(head);
             BlockState stateCeiling = villager.level().getBlockState(ceiling);
 
-            // ИСПРАВЛЕНО: Строим мост ВСЕГДА, когда на уровне пола ступени воздух (stateFloor.isAir())!
-            // Это гарантирует ровный пол лестницы и защищает от проваливания вниз и петель "поставил-сломал"
-            if (stateFloor.isAir()) {
+            BlockPos belowFloor = floor.below();
+            if (stateFloor.isAir() && villager.level().getBlockState(belowFloor).isAir()) {
                 ItemStack bridgeBlock = getPlaceableBlock();
                 if (!bridgeBlock.isEmpty()) {
                     this.targetBlockPos = floor;
                     this.isBridging = true;
                     return true;
                 } else {
-                    return false; // Нет блоков для моста — стоп шахта
+                    return false;
                 }
             }
 
-            // Копаем боковые ветки «Ёлочки»
+            if (stateFloor.isAir() && stateHead.isAir() && stateCeiling.isAir()) {
+                BlockPos exposedOre = scanExposedTunnelWalls(floor, head, ceiling);
+                if (exposedOre != null && isToolTiredCorrect(pickaxe, villager.level().getBlockState(exposedOre)) && isSafeToMine(exposedOre)) {
+                    this.targetBlockPos = exposedOre;
+                    this.isBridging = false;
+                    return true;
+                }
+            } else {
+                break;
+            }
+        }
+
+        for (int n = 0; n < 100; n++) {
+            int z = startPos.getZ() + n;
+            int y = startPos.getY() - (n / 2);
+            int x = startPos.getX();
+
+            BlockPos floor = new BlockPos(x, y, z);
+            BlockPos head = new BlockPos(x, y + 1, z);
+            BlockPos ceiling = new BlockPos(x, y + 2, z);
+
+            BlockState stateFloor = villager.level().getBlockState(floor);
+            BlockState stateHead = villager.level().getBlockState(head);
+            BlockState stateCeiling = villager.level().getBlockState(ceiling);
+
+            BlockPos belowFloor = floor.below();
+            if (stateFloor.isAir() && villager.level().getBlockState(belowFloor).isAir()) {
+                ItemStack bridgeBlock = getPlaceableBlock();
+                if (!bridgeBlock.isEmpty()) {
+                    this.targetBlockPos = floor;
+                    this.isBridging = true;
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+
             if (n > 0 && n % 6 == 0 && stateFloor.isAir() && stateHead.isAir() && stateCeiling.isAir()) {
                 BlockPos branchTarget = scanHorizontalBranch(x, y, z, 1, pickaxe);
                 if (branchTarget != null) {
@@ -152,7 +154,6 @@ public class VillagerMiningGoal extends Goal {
                 }
             }
 
-            // Копаем основную лестницу вниз (Копаем ТОЛЬКО потолок и голову, никогда не рубим блок пола!)
             if (!stateFloor.isAir() || !stateHead.isAir() || !stateCeiling.isAir()) {
                 this.currentStep = n;
                 this.isBridging = false;
@@ -393,8 +394,13 @@ public class VillagerMiningGoal extends Goal {
             sl.destroyBlock(targetBlockPos, true, villager);
             sl.destroyBlockProgress(villager.getId(), targetBlockPos, -1);
 
-            this.activeVeinBlockPos = findAdjacentOre(targetBlockPos);
+            // ИСПРАВЛЕНО: Физический труд тратит 0.35 сытости жителя!
+            VillagerAttachment att = villager.getData(ModAttachments.VILLAGER.get());
+            if (att != null) {
+                att.decreaseHunger(0.35);
+            }
 
+            this.activeVeinBlockPos = findAdjacentOre(targetBlockPos);
             this.targetBlockPos = null;
         }
     }
@@ -449,6 +455,12 @@ public class VillagerMiningGoal extends Goal {
     @Override
     public boolean canContinueToUse() {
         if (villager.level().isNight()) return false;
+
+        // ИСПРАВЛЕНО: Шахтер прерывает работу, если у него кончились силы (сытость < 3)
+        VillagerAttachment att = villager.getData(ModAttachments.VILLAGER.get());
+        if (att != null && att.getHunger() < 3.0) {
+            return false;
+        }
 
         if (villager.getLastHurtByMob() != null && villager.level().getGameTime() - villager.getLastHurtByMobTimestamp() < 100) {
             return false;

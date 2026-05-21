@@ -25,6 +25,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.level.entity.EntityTypeTest;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.Mod;
@@ -62,6 +63,10 @@ public class EconomyMod {
         NeoForge.EVENT_BUS.register(ServerEvents.class);
         NeoForge.EVENT_BUS.register(VillagerInteractionHandler.class);
         NeoForge.EVENT_BUS.register(this);
+    }
+
+    public static void clearLootQueue() {
+        lootDelayQueue.clear();
     }
 
     @SubscribeEvent
@@ -103,10 +108,15 @@ public class EconomyMod {
     public void onLevelTick(LevelTickEvent.Post event) {
         if (event.getLevel() instanceof ServerLevel serverLevel) {
             long currentTime = serverLevel.getGameTime();
+
+            // ИСПРАВЛЕНО: Безопасное удаление несуществующих жителей для предотвращения утечки памяти
             lootDelayQueue.entrySet().removeIf(entry -> {
+                Entity entity = serverLevel.getEntity(entry.getKey());
+                if (entity == null || !entity.isAlive()) {
+                    return true;
+                }
                 if (currentTime >= entry.getValue()) {
-                    var entity = serverLevel.getEntity(entry.getKey());
-                    if (entity instanceof Villager villager && villager.isAlive()) {
+                    if (entity instanceof Villager villager) {
                         var att = villager.getData(ModAttachments.VILLAGER.get());
                         if (att != null && !att.wasLootGenerated()) {
                             if (villager.getVillagerData().getProfession() != VillagerProfession.NONE) att.fillInitialLoot();
@@ -117,12 +127,12 @@ public class EconomyMod {
                 }
                 return false;
             });
+
+            // ИСПРАВЛЕНО: Оптимизированный цикл - берем ТОЛЬКО живых жителей, избегая O(N) по всему миру
             if (currentTime % 20 == 0) {
-                for (Entity e : serverLevel.getAllEntities()) {
-                    if (e instanceof Villager villager && villager.isAlive()) {
-                        processRealisticPickup(villager, serverLevel);
-                        siphonInventory(villager);
-                    }
+                for (Villager villager : serverLevel.getEntities(EntityTypeTest.forClass(Villager.class), Entity::isAlive)) {
+                    processRealisticPickup(villager, serverLevel);
+                    siphonInventory(villager);
                 }
             }
             com.economymod.economy.systems.VirtualTraderManager.tick(serverLevel);
@@ -167,7 +177,6 @@ public class EconomyMod {
                 for (int i = 0; i < inv.getContainerSize(); i++) {
                     if (!inv.getItem(i).isEmpty()) event.getDrops().add(new ItemEntity(villager.level(), villager.getX(), villager.getY(), villager.getZ(), inv.getItem(i).copy()));
                 }
-                // ИСПРАВЛЕНО: double coins
                 double coins = att.getBalance();
                 if (coins > 0) {
                     ItemStack moneyStack = new ItemStack(Items.GOLD_NUGGET, 1);
