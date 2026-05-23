@@ -109,7 +109,6 @@ public class EconomyMod {
         if (event.getLevel() instanceof ServerLevel serverLevel) {
             long currentTime = serverLevel.getGameTime();
 
-            // ИСПРАВЛЕНО: Безопасное удаление несуществующих жителей для предотвращения утечки памяти
             lootDelayQueue.entrySet().removeIf(entry -> {
                 Entity entity = serverLevel.getEntity(entry.getKey());
                 if (entity == null || !entity.isAlive()) {
@@ -128,7 +127,6 @@ public class EconomyMod {
                 return false;
             });
 
-            // ИСПРАВЛЕНО: Оптимизированный цикл - берем ТОЛЬКО живых жителей, избегая O(N) по всему миру
             if (currentTime % 20 == 0) {
                 for (Villager villager : serverLevel.getEntities(EntityTypeTest.forClass(Villager.class), Entity::isAlive)) {
                     processRealisticPickup(villager, serverLevel);
@@ -143,7 +141,9 @@ public class EconomyMod {
     private void processRealisticPickup(Villager villager, ServerLevel level) {
         var att = villager.getData(ModAttachments.VILLAGER.get());
         if (att == null) return;
-        for (ItemEntity itemEntity : level.getEntitiesOfClass(ItemEntity.class, villager.getBoundingBox().inflate(0.8))) {
+
+        // ИСПРАВЛЕНО: Увеличен радиус до 1.5 блоков, чтобы жителю было легче заметить кинутые вещи
+        for (ItemEntity itemEntity : level.getEntitiesOfClass(ItemEntity.class, villager.getBoundingBox().inflate(1.5))) {
             if (!itemEntity.isAlive() || !itemEntity.onGround()) continue;
             ItemStack stack = itemEntity.getItem();
             ItemStack leftover = att.getInventory().addItem(stack.copy());
@@ -151,6 +151,10 @@ public class EconomyMod {
                 itemEntity.setItem(leftover);
                 if (leftover.isEmpty()) itemEntity.discard();
                 level.playSound(null, villager.blockPosition(), net.minecraft.sounds.SoundEvents.ITEM_PICKUP, net.minecraft.sounds.SoundSource.NEUTRAL, 0.5F, 1.0F);
+
+                // ДОБАВЛЕНО: Лог подбора предметов в консоль
+                com.economymod.EconomyMod.LOGGER.info("ЭКОНОМИКА: Житель {} успешно засосал с земли {} x{}",
+                        villager.getName().getString(), stack.getItem().toString(), (stack.getCount() - leftover.getCount()));
             }
         }
     }

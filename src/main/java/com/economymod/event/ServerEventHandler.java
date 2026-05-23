@@ -12,7 +12,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
-import net.neoforged.neoforge.event.tick.EntityTickEvent; // ИСПРАВЛЕНО: Новый импорт события тиков сущностей в 1.21.1
+import net.neoforged.neoforge.event.tick.EntityTickEvent;
 
 import java.util.List;
 
@@ -34,27 +34,28 @@ public class ServerEventHandler {
         if (event.getLevel().isClientSide()) return;
 
         if (event.getEntity() instanceof Villager villager) {
-            villager.goalSelector.addGoal(1, new VillagerDepositTrashGoal(villager));
-            villager.goalSelector.addGoal(2, new VillagerMiningGoal(villager));
-            villager.goalSelector.addGoal(2, new VillagerSmeltingGoal(villager));
-            villager.goalSelector.addGoal(3, new VillagerCraftingGoal(villager));
-            villager.goalSelector.addGoal(3, new VillagerCompostingGoal(villager));
-            villager.goalSelector.addGoal(4, new VillagerP2PTradeGoal(villager));
+            // Регистрируем цель активного сбора ресурсов с земли с наивысшим приоритетом 1
+            villager.goalSelector.addGoal(1, new VillagerCollectItemsGoal(villager));
+            villager.goalSelector.addGoal(2, new VillagerDepositTrashGoal(villager));
+            villager.goalSelector.addGoal(3, new VillagerMiningGoal(villager));
+            villager.goalSelector.addGoal(3, new VillagerSmeltingGoal(villager));
+            villager.goalSelector.addGoal(4, new VillagerCraftingGoal(villager));
+            villager.goalSelector.addGoal(4, new VillagerCompostingGoal(villager));
+            villager.goalSelector.addGoal(5, new VillagerP2PTradeGoal(villager));
 
             EconomyMod.LOGGER.info("ЭКОНОМИКА ИИ: Все экономические цели успешно прописаны в мозг жителя [{}]!",
                     villager.getDisplayName().getString());
         }
     }
 
-    // ИСПРАВЛЕНО: Подписываемся на конкретный сабкласс .Pre, чтобы избежать краша абстрактного класса
     @SubscribeEvent
     public static void onEntityTick(EntityTickEvent.Pre event) {
         if (event.getEntity().level().isClientSide()) return;
 
-        if (event.getEntity() instanceof Villager villager) {
+        if (event.getEntity() instanceof Villager villager && villager.isAlive()) {
             var att = villager.getData(ModAttachments.VILLAGER.get());
             if (att != null) {
-                att.tick(); // Запускаем цикл голода и питания жителя
+                att.tick();
             }
         }
     }
@@ -64,8 +65,10 @@ public class ServerEventHandler {
         if (event.getEntity().level().isClientSide()) return;
 
         LivingEntity victim = event.getEntity();
+
         if (victim instanceof Villager || victim instanceof VillageGuardEntity) {
             if (event.getSource().getEntity() instanceof LivingEntity attacker && attacker != victim) {
+
                 List<VillageGuardEntity> guards = victim.level().getEntitiesOfClass(
                         VillageGuardEntity.class,
                         victim.getBoundingBox().inflate(32.0D)
