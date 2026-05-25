@@ -211,8 +211,11 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
         }
     }
 
-    @Override public void removed(Player player) {
+    @Override
+    public void removed(Player player) {
         super.removed(player);
+
+        // Возвращаем предметы из корзины продажи игроку
         for (int i = 0; i < 9; i++) {
             ItemStack stack = sellContainer.getItem(i);
             if (!stack.isEmpty()) {
@@ -220,7 +223,28 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
                 sellContainer.setItem(i, ItemStack.EMPTY);
             }
         }
-        for (int i = 0; i < 9; i++) buyContainer.setItem(i, ItemStack.EMPTY);
+
+        // Возвращаем предметы из корзины покупки владельцу (торговцу)
+        for (int i = 0; i < 9; i++) {
+            ItemStack stack = buyContainer.getItem(i);
+            if (!stack.isEmpty() && ownerActor != null) {
+                // Добавляем предмет обратно владельцу
+                ItemStack remainder = ownerActor.getInventory().addItem(stack.copy());
+                if (!remainder.isEmpty()) {
+                    // Если не влезло полностью, дропаем на землю
+                    if (ownerActor.getPosition() != null && player.level() instanceof ServerLevel) {
+                        player.level().addFreshEntity(new net.minecraft.world.entity.item.ItemEntity(
+                                player.level(),
+                                ownerActor.getPosition().getX(),
+                                ownerActor.getPosition().getY(),
+                                ownerActor.getPosition().getZ(),
+                                remainder
+                        ));
+                    }
+                }
+                buyContainer.setItem(i, ItemStack.EMPTY);
+            }
+        }
     }
 
     @Override public ItemStack quickMoveStack(Player player, int index) {

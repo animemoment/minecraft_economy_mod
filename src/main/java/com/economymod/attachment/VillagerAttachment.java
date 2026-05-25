@@ -322,6 +322,7 @@ public class VillagerAttachment implements IEconomicActor {
         tag.putDouble("Budget", budget);
         tag.putBoolean("WasLootGenerated", wasLootGenerated);
         tag.putDouble("Hunger", hunger);
+        tag.putInt("MiningStartY", miningStartY);
         if (personalChestPos != null) tag.putLong("ChestPos", personalChestPos.asLong());
         ListTag invList = new ListTag();
         for (int i = 0; i < INVENTORY_SIZE; i++) {
@@ -346,6 +347,7 @@ public class VillagerAttachment implements IEconomicActor {
         hunger = tag.contains("Hunger") ? tag.getDouble("Hunger") : 20.0;
         if (tag.contains("ChestPos")) personalChestPos = BlockPos.of(tag.getLong("ChestPos"));
         inventory.clearContent();
+        miningStartY = tag.getInt("MiningStartY");
         ListTag invList = tag.getList("Inventory", Tag.TAG_COMPOUND);
         for (int i = 0; i < invList.size(); i++) {
             CompoundTag slotTag = invList.getCompound(i);
@@ -376,6 +378,11 @@ public class VillagerAttachment implements IEconomicActor {
     @Override public BlockPos getPosition() { return villager != null ? villager.blockPosition() : null; }
     public static class Demand { public final ItemStack stack; public final int maxPricePerItem; public Demand(ItemStack stack, int maxPricePerItem) { this.stack = stack; this.maxPricePerItem = maxPricePerItem; } }
     public static class Offer { public final ItemStack stack; public final int minPricePerItem; public Offer(ItemStack stack, int minPricePerItem) { this.stack = stack; this.minPricePerItem = minPricePerItem; } }
+
+    private int miningStartY = -1;
+
+    public int getMiningStartY() { return miningStartY; }
+    public void setMiningStartY(int y) { this.miningStartY = y; }
 
     public void forceLootGeneration() {
         VillagerProfession prof = getProfession();

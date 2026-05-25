@@ -3,6 +3,7 @@ package com.economymod.command;
 import com.economymod.EconomyMod;
 import com.economymod.economy.PriceCalculator;
 import com.economymod.world.VillageNetworkData;
+import com.economymod.neural.NeuralCommand; // ← ДОБАВИТЬ ИМПОРТ
 import com.mojang.brigadier.CommandDispatcher;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -19,6 +20,10 @@ public class CommandRegistry {
 
     @SubscribeEvent
     public static void onRegisterCommands(RegisterCommandsEvent event) {
+        // Регистрация команд нейросети
+        NeuralCommand.register(event.getDispatcher());
+
+        // Основные команды экономики
         CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
 
         dispatcher.register(Commands.literal("economy")
@@ -70,11 +75,8 @@ public class CommandRegistry {
                             int beforeSize = data.getAllVillages().size();
                             int beforeHash = System.identityHashCode(data);
 
-                            // Очищаем в ОЗУ
                             data.clearAllVillages();
                             data.setDirty();
-
-                            // Силой пишем на диск
                             level.getDataStorage().save();
 
                             int afterSize = data.getAllVillages().size();
@@ -87,7 +89,7 @@ public class CommandRegistry {
                         })
                 )
 
-                // 4. Новая дебаг-команда: Выводит координаты первых 10 деревень в чат (ИСПРАВЛЕНО!)
+                // 4. Команда списка деревень
                 .then(Commands.literal("list")
                         .executes(context -> {
                             ServerLevel level = context.getSource().getLevel();
@@ -97,11 +99,8 @@ public class CommandRegistry {
                             int limit = 0;
                             for (BlockPos pos : data.getAllVillagePositions()) {
                                 if (limit >= 10) break;
-
-                                // ИСПРАВЛЕНО: Форматируем строку заранее и сохраняем в final константу, чтобы обойти ограничение лямбды
                                 final int currentNum = limit + 1;
                                 final String message = String.format("Деревня %d: §e[%d, %d, %d]", currentNum, pos.getX(), pos.getY(), pos.getZ());
-
                                 context.getSource().sendSuccess(() -> Component.literal(message), false);
                                 limit++;
                             }

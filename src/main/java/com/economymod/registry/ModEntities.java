@@ -3,6 +3,7 @@ package com.economymod.registry;
 import com.economymod.EconomyMod;
 import com.economymod.entity.EconomyTraderEntity;
 import com.economymod.entity.VillageGuardEntity;
+import com.economymod.entity.TestCreatureEntity; // ← ДОБАВИТЬ ИМПОРТ
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobCategory;
 import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
@@ -21,7 +22,6 @@ public class ModEntities {
                     .clientTrackingRange(10)
                     .build("economy_trader"));
 
-    // ИСПРАВЛЕНО: VillageGuardEntity теперь является подтипом Villager
     public static final DeferredHolder<EntityType<?>, EntityType<VillageGuardEntity>>
             VILLAGE_GUARD = ENTITY_TYPES.register("village_guard", () ->
             EntityType.Builder.of(VillageGuardEntity::new, MobCategory.CREATURE)
@@ -29,8 +29,17 @@ public class ModEntities {
                     .clientTrackingRange(10)
                     .build("village_guard"));
 
+    // Новая тестовая сущность
+    public static final DeferredHolder<EntityType<?>, EntityType<TestCreatureEntity>>
+            TEST_CREATURE = ENTITY_TYPES.register("test_creature", () ->
+            EntityType.Builder.of(TestCreatureEntity::new, MobCategory.CREATURE)
+                    .sized(0.6f, 0.6f)
+                    .clientTrackingRange(10)
+                    .build("test_creature"));
+
     public static void registerAttributes(EntityAttributeCreationEvent event) {
         event.put(ECONOMY_TRADER.get(), EconomyTraderEntity.createAttributes().build());
         event.put(VILLAGE_GUARD.get(), VillageGuardEntity.createAttributes().build());
+        event.put(TEST_CREATURE.get(), TestCreatureEntity.createAttributes().build()); // ← добавить
     }
 }

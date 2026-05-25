@@ -374,6 +374,7 @@ public class VillagerAttachment implements IEconomicActor {
         tag.putDouble("Budget", budget);
         tag.putBoolean("WasLootGenerated", wasLootGenerated);
         tag.putDouble("Hunger", hunger);
+        tag.putInt("MiningStartY", miningStartY);
         if (personalChestPos != null) tag.putLong("ChestPos", personalChestPos.asLong());
         ListTag invList = new ListTag();
         for (int i = 0; i < INVENTORY_SIZE; i++) {
@@ -398,6 +399,7 @@ public class VillagerAttachment implements IEconomicActor {
         hunger = tag.contains("Hunger") ? tag.getDouble("Hunger") : 20.0;
         if (tag.contains("ChestPos")) personalChestPos = BlockPos.of(tag.getLong("ChestPos"));
         inventory.clearContent();
+        miningStartY = tag.getInt("MiningStartY");
         ListTag invList = tag.getList("Inventory", Tag.TAG_COMPOUND);
         for (int i = 0; i < invList.size(); i++) {
             CompoundTag slotTag = invList.getCompound(i);
@@ -428,6 +430,11 @@ public class VillagerAttachment implements IEconomicActor {
     @Override public BlockPos getPosition() { return villager != null ? villager.blockPosition() : null; }
     public static class Demand { public final ItemStack stack; public final int maxPricePerItem; public Demand(ItemStack stack, int maxPricePerItem) { this.stack = stack; this.maxPricePerItem = maxPricePerItem; } }
     public static class Offer { public final ItemStack stack; public final int minPricePerItem; public Offer(ItemStack stack, int minPricePerItem) { this.stack = stack; this.minPricePerItem = minPricePerItem; } }
+
+    private int miningStartY = -1;
+
+    public int getMiningStartY() { return miningStartY; }
+    public void setMiningStartY(int y) { this.miningStartY = y; }
 
     public void forceLootGeneration() {
         VillagerProfession prof = getProfession();
@@ -495,6 +502,7 @@ public class ClientEventHandler {
 
         // Р”РћР‘РђР’Р›Р•РќРћ: Р РµРіРёСЃС‚СЂР°С†РёСЏ СЂРµРЅРґРµСЂРµСЂР° РґР»СЏ РЅР°С€РµРіРѕ РІРѕРёРЅР°-Р·Р°С‰РёС‚РЅРёРєР°
         event.registerEntityRenderer(ModEntities.VILLAGE_GUARD.get(), VillageGuardRenderer::new);
+        //event.registerEntityRenderer(ModEntities.TEST_CREATURE.get(), TestCreatureRenderer::new);
     }
 }
 
@@ -529,6 +537,32 @@ public class EconomyTraderRenderer extends LivingEntityRenderer<EconomyTraderEnt
 
 
 ================================================================================
+[FILE]: \src\main\java\com\economymod\client\TestCreatureRenderer.java
+================================================================================
+package com.economymod.client;
+
+import com.economymod.entity.TestCreatureEntity;
+import net.minecraft.client.model.HumanoidModel;
+import net.minecraft.client.model.geom.ModelLayers;
+import net.minecraft.client.renderer.entity.EntityRendererProvider;
+import net.minecraft.client.renderer.entity.HumanoidMobRenderer;
+import net.minecraft.resources.ResourceLocation;
+
+public class TestCreatureRenderer extends HumanoidMobRenderer<TestCreatureEntity, HumanoidModel<TestCreatureEntity>> {
+    private static final ResourceLocation TEXTURE = ResourceLocation.fromNamespaceAndPath("economymod", "textures/entity/test_creature.png");
+
+    public TestCreatureRenderer(EntityRendererProvider.Context context) {
+        super(context, new HumanoidModel<>(context.bakeLayer(ModelLayers.PLAYER)), 0.5f);
+    }
+
+    @Override
+    public ResourceLocation getTextureLocation(TestCreatureEntity entity) {
+        return TEXTURE;
+    }
+}
+
+
+================================================================================
 [FILE]: \src\main\java\com\economymod\client\VillageGuardRenderer.java
 ================================================================================
 package com.economymod.client;
@@ -544,21 +578,15 @@ import net.minecraft.resources.ResourceLocation;
 
 public class VillageGuardRenderer extends HumanoidMobRenderer<VillageGuardEntity, HumanoidModel<VillageGuardEntity>> {
 
-    // РўРµРєСЃС‚СѓСЂР° РІРѕРёРЅР°-Р¶РёС‚РµР»СЏ (СЃРєРёРЅ РЅР° РјРѕРґРµР»СЊ РёРіСЂРѕРєР°)
     private static final ResourceLocation TEXTURE = ResourceLocation.fromNamespaceAndPath(EconomyMod.MODID, "textures/entity/village_guard.png");
 
     public VillageGuardRenderer(EntityRendererProvider.Context context) {
-        // Р РµРЅРґРµСЂРёРј РµРіРѕ РЅР° СЃРєРµР»РµС‚Рµ РёРіСЂРѕРєР° (PLAYER) СЃ С‚РµРЅСЊСЋ 0.5f
         super(context, new HumanoidModel<>(context.bakeLayer(ModelLayers.PLAYER)), 0.5F);
-
-        // Р”РѕР±Р°РІР»СЏРµРј РїРѕР»РЅРѕС†РµРЅРЅС‹Р№ СЂРµРЅРґРµСЂРёРЅРі РІР°РЅРёР»СЊРЅРѕР№ Р±СЂРѕРЅРё (РІСЃРµС… С‚РёРїРѕРІ!)
         this.addLayer(new HumanoidArmorLayer<>(this,
                 new HumanoidModel<>(context.bakeLayer(ModelLayers.PLAYER_INNER_ARMOR)),
                 new HumanoidModel<>(context.bakeLayer(ModelLayers.PLAYER_OUTER_ARMOR)),
                 context.getModelManager()));
-
-        // РџСЂРёРєСЂРµРїР»СЏРµРј 3D РЅРѕСЃ Р¶РёС‚РµР»СЏ Рє РµРіРѕ Р»РёС†Сѓ!
-        this.addLayer(new VillagerNoseLayer<>(this, context.getModelSet()));
+        // РќР• Р”РћР‘РђР’Р›РЇР•Рњ VillagerNoseLayer, С‡С‚РѕР±С‹ РёР·Р±РµР¶Р°С‚СЊ РѕС€РёР±РѕРє С‚РµРєСЃС‚СѓСЂС‹
     }
 
     @Override
@@ -691,6 +719,7 @@ package com.economymod.command;
 import com.economymod.EconomyMod;
 import com.economymod.economy.PriceCalculator;
 import com.economymod.world.VillageNetworkData;
+import com.economymod.neural.NeuralCommand; // в†ђ Р”РћР‘РђР’РРўР¬ РРњРџРћР Рў
 import com.mojang.brigadier.CommandDispatcher;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -707,6 +736,10 @@ public class CommandRegistry {
 
     @SubscribeEvent
     public static void onRegisterCommands(RegisterCommandsEvent event) {
+        // Р РµРіРёСЃС‚СЂР°С†РёСЏ РєРѕРјР°РЅРґ РЅРµР№СЂРѕСЃРµС‚Рё
+        NeuralCommand.register(event.getDispatcher());
+
+        // РћСЃРЅРѕРІРЅС‹Рµ РєРѕРјР°РЅРґС‹ СЌРєРѕРЅРѕРјРёРєРё
         CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
 
         dispatcher.register(Commands.literal("economy")
@@ -758,11 +791,8 @@ public class CommandRegistry {
                             int beforeSize = data.getAllVillages().size();
                             int beforeHash = System.identityHashCode(data);
 
-                            // РћС‡РёС‰Р°РµРј РІ РћР—РЈ
                             data.clearAllVillages();
                             data.setDirty();
-
-                            // РЎРёР»РѕР№ РїРёС€РµРј РЅР° РґРёСЃРє
                             level.getDataStorage().save();
 
                             int afterSize = data.getAllVillages().size();
@@ -775,7 +805,7 @@ public class CommandRegistry {
                         })
                 )
 
-                // 4. РќРѕРІР°СЏ РґРµР±Р°Рі-РєРѕРјР°РЅРґР°: Р’С‹РІРѕРґРёС‚ РєРѕРѕСЂРґРёРЅР°С‚С‹ РїРµСЂРІС‹С… 10 РґРµСЂРµРІРµРЅСЊ РІ С‡Р°С‚ (РРЎРџР РђР’Р›Р•РќРћ!)
+                // 4. РљРѕРјР°РЅРґР° СЃРїРёСЃРєР° РґРµСЂРµРІРµРЅСЊ
                 .then(Commands.literal("list")
                         .executes(context -> {
                             ServerLevel level = context.getSource().getLevel();
@@ -785,11 +815,8 @@ public class CommandRegistry {
                             int limit = 0;
                             for (BlockPos pos : data.getAllVillagePositions()) {
                                 if (limit >= 10) break;
-
-                                // РРЎРџР РђР’Р›Р•РќРћ: Р¤РѕСЂРјР°С‚РёСЂСѓРµРј СЃС‚СЂРѕРєСѓ Р·Р°СЂР°РЅРµРµ Рё СЃРѕС…СЂР°РЅСЏРµРј РІ final РєРѕРЅСЃС‚Р°РЅС‚Сѓ, С‡С‚РѕР±С‹ РѕР±РѕР№С‚Рё РѕРіСЂР°РЅРёС‡РµРЅРёРµ Р»СЏРјР±РґС‹
                                 final int currentNum = limit + 1;
                                 final String message = String.format("Р”РµСЂРµРІРЅСЏ %d: В§e[%d, %d, %d]", currentNum, pos.getX(), pos.getY(), pos.getZ());
-
                                 context.getSource().sendSuccess(() -> Component.literal(message), false);
                                 limit++;
                             }
@@ -2731,50 +2758,41 @@ public class TravelToVillageGoal extends Goal {
 package com.economymod.entity.ai;
 
 import com.economymod.entity.VillageGuardEntity;
-import net.minecraft.core.BlockPos; // Р”РѕР±Р°РІР»РµРЅРѕ
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.goal.Goal;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.item.ShieldItem;
-import net.minecraft.world.level.block.state.BlockState; // Р”РѕР±Р°РІР»РµРЅРѕ
-
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import java.util.EnumSet;
 
 public class VillageGuardCombatGoal extends Goal {
     private final VillageGuardEntity guard;
     private LivingEntity target;
     private int attackCooldown = 0;
-    private int strafeChangeTimer = 0;
-    private boolean strafeRight = true;
     private int blockCooldown = 0;
     private int blockDuration = 0;
+    private int stuckTimer = 0;
+    private BlockPos lastPos = null;
 
     public VillageGuardCombatGoal(VillageGuardEntity guard) {
         this.guard = guard;
         this.setFlags(EnumSet.of(Goal.Flag.MOVE, Goal.Flag.LOOK));
-
-        // РРЎРџР РђР’Р›Р•РќРћ: Р Р°СЃРїСЂРµРґРµР»СЏРµРј РЅР°РїСЂР°РІР»РµРЅРёРµ СЃС‚СЂРµР№С„Р° РїРѕ ID.
-        // РџРѕР»РѕРІРёРЅР° РІРѕРёРЅРѕРІ РїРѕР№РґРµС‚ РІР»РµРІРѕ, РїРѕР»РѕРІРёРЅР° РІРїСЂР°РІРѕ вЂ” РѕРЅРё Р·Р°Р¶РјСѓС‚ РёРіСЂРѕРєР° РІ РєР»РµС‰Рё!
-        this.strafeRight = (guard.getId() % 2 == 0);
     }
 
     @Override
     public boolean canUse() {
         LivingEntity livingEntity = this.guard.getTarget();
         if (livingEntity != null && livingEntity.isAlive()) {
-
-            // РРЎРџР РђР’Р›Р•РќРћ: Р•СЃР»Рё С†РµР»СЊ вЂ” РёРіСЂРѕРє РІ РљСЂРµР°С‚РёРІРµ РёР»Рё РЎРїРµРєС‚Р°С‚РѕСЂРµ, РјС‹ РµРіРѕ РїРѕР»РЅРѕСЃС‚СЊСЋ РёРіРЅРѕСЂРёСЂСѓРµРј!
             if (livingEntity instanceof net.minecraft.world.entity.player.Player player) {
                 if (player.isCreative() || player.isSpectator()) {
                     this.guard.setTarget(null);
                     return false;
                 }
             }
-
             this.target = livingEntity;
             return true;
         }
@@ -2787,6 +2805,8 @@ public class VillageGuardCombatGoal extends Goal {
         this.attackCooldown = 0;
         this.blockCooldown = 0;
         this.blockDuration = 0;
+        this.stuckTimer = 0;
+        this.lastPos = null;
     }
 
     @Override
@@ -2800,107 +2820,85 @@ public class VillageGuardCombatGoal extends Goal {
     public void tick() {
         if (target == null || !target.isAlive()) return;
 
-        // РџРѕСЃС‚РѕСЏРЅРЅС‹Р№ Р·СЂРёС‚РµР»СЊРЅС‹Р№ С„РѕРєСѓСЃ РЅР° РІСЂР°РіРµ
         this.guard.getLookControl().setLookAt(target, 30.0F, 30.0F);
-
         double distSqr = this.guard.distanceToSqr(target);
-        boolean canSee = this.guard.getSensing().hasLineOfSight(target);
+        double dist = Math.sqrt(distSqr);
 
-        // РђРќРўР-РђР‘РЈР— РЎРўРћР›Р‘РћР’
-        if (target.getY() - this.guard.getY() > 1.5D) {
-            BlockPos pillarPos = BlockPos.containing(target.getX(), target.getY() - 0.5D, target.getZ());
+        // Р”РµС‚РµРєС‚РѕСЂ Р·Р°СЃС‚СЂРµРІР°РЅРёСЏ
+        BlockPos currentPos = this.guard.blockPosition();
+        if (lastPos != null && lastPos.equals(currentPos)) {
+            stuckTimer++;
+            if (stuckTimer > 30) {
+                this.guard.getNavigation().stop();
+                this.guard.getJumpControl().jump();
+                stuckTimer = 0;
+            }
+        } else {
+            lastPos = currentPos;
+            stuckTimer = 0;
+        }
+
+        // РђС‚Р°РєР° СЃС‚РѕР»Р±РѕРІ
+        double dy = target.getY() - this.guard.getY();
+        if (dy > 1.5D) {
+            BlockPos pillarPos = BlockPos.containing(target.getX(), target.getY() - 1, target.getZ());
             BlockState state = this.guard.level().getBlockState(pillarPos);
-
-            if (!state.isAir() && !state.is(net.minecraft.world.level.block.Blocks.BEDROCK)) {
-                this.guard.getLookControl().setLookAt(pillarPos.getX() + 0.5, pillarPos.getY() + 0.5, pillarPos.getZ() + 0.5);
-                this.guard.getNavigation().moveTo(pillarPos.getX() + 0.5, pillarPos.getY(), pillarPos.getZ() + 0.5, 1.1D);
-
-                if (this.guard.distanceToSqr(pillarPos.getX() + 0.5, pillarPos.getY(), pillarPos.getZ() + 0.5) < 6.0) {
-                    this.guard.getNavigation().stop();
+            if (!state.isAir() && !state.is(Blocks.BEDROCK)) {
+                this.guard.getNavigation().moveTo(pillarPos.getX() + 0.5, pillarPos.getY(), pillarPos.getZ() + 0.5, 1.2D);
+                if (dist < 4.0) {
                     this.guard.swing(InteractionHand.MAIN_HAND);
-                    if (this.guard.getRandom().nextInt(15) == 0 && this.guard.level() instanceof ServerLevel sl) {
-                        sl.destroyBlock(pillarPos, true, this.guard);
-                    }
                 }
                 return;
             }
         }
 
-        // Р‘Р»РѕРєРёСЂРѕРІРєР° С‰РёС‚РѕРј
+        // Р”РІРёР¶РµРЅРёРµ: РїСЂРёР±Р»РёР¶Р°РµРјСЃСЏ РёР»Рё РєСЂСѓР¶РёРј
+        if (dist > 3.0) {
+            this.guard.getNavigation().moveTo(target, 1.2D);
+        } else {
+            // РљСЂСѓР¶РµРЅРёРµ РІРѕРєСЂСѓРі С†РµР»Рё
+            boolean clockwise = (this.guard.getId() % 2 == 0);
+            double angle = (this.guard.tickCount * 0.1) * (clockwise ? 1 : -1);
+            double radius = 2.5D;
+            double tx = target.getX() + Math.cos(angle) * radius;
+            double tz = target.getZ() + Math.sin(angle) * radius;
+            this.guard.getNavigation().moveTo(tx, target.getY(), tz, 1.0D);
+        }
+
+        // РџРѕРІРѕСЂРѕС‚ Рє С†РµР»Рё
+        double dx = target.getX() - this.guard.getX();
+        double dz = target.getZ() - this.guard.getZ();
+        float yaw = (float)(Math.atan2(dz, dx) * 180.0D / Math.PI) - 90.0F;
+        this.guard.setYRot(yaw);
+        this.guard.setYBodyRot(yaw);
+        this.guard.setYHeadRot(yaw);
+
+        // Р‘Р»РѕРє С‰РёС‚РѕРј
         handleShieldBlock(distSqr);
 
-        // PvP СЃС‚СЂРµР№С„ Р±РѕРєРѕРј Рё С‚Р°РєС‚РёС‡РµСЃРєРёР№ РјР°СЏС‚РЅРёРє (РІР·Р°Рґ-РІРїРµСЂРµРґ)
-        if (canSee && distSqr <= 16.0) {
-            this.guard.getNavigation().stop();
+        // РђС‚Р°РєР°
+        if (attackCooldown > 0) attackCooldown--;
 
-            strafeChangeTimer++;
-            if (strafeChangeTimer >= 25 + this.guard.getRandom().nextInt(25)) {
-                strafeRight = !strafeRight;
-                strafeChangeTimer = 0;
-            }
-
-            float sidewaysSpeed = strafeRight ? 0.5F : -0.5F;
-            if (this.guard.isUsingItem()) {
-                sidewaysSpeed *= 0.3F;
-            }
-
-            // РРЎРџР РђР’Р›Р•РќРћ: РўР°РєС‚РёС‡РµСЃРєРёР№ РјР°СЏС‚РЅРёРє (Р”РІРёР¶РµРЅРёРµ РІР·Р°Рґ-РІРїРµСЂРµРґ)
-            float forwardSpeed = 0.1F; // РџРѕ РґРµС„РѕР»С‚Сѓ РјРµРґР»РµРЅРЅРѕ РєСЂСѓР¶РёРјСЃСЏ РїРѕ СЃРїРёСЂР°Р»Рё
-
-            if (distSqr < 4.0D) {
-                // РЎР»РёС€РєРѕРј Р±Р»РёР·РєРѕ вЂ” РѕС‚С…РѕРґРёРј РЅР°Р·Р°Рґ, С‡С‚РѕР±С‹ РґРµСЂР¶Р°С‚СЊ РІСЂР°РіР° РЅР° РєРѕРЅС†Рµ РјРµС‡Р°
-                forwardSpeed = -0.3F;
-            } else if (this.guard.isUsingItem()) {
-                // Р—Р°Р¶Р°Р»РёСЃСЊ С‰РёС‚РѕРј вЂ” РјРµРґР»РµРЅРЅРѕ РѕС‚СЃС‚СѓРїР°РµРј РЅР°Р·Р°Рґ, РґРµСЂР¶Р° РѕР±РѕСЂРѕРЅСѓ
-                forwardSpeed = -0.15F;
-            } else if (attackCooldown <= 1) {
-                // РљСѓР»РґР°СѓРЅ СѓРґР°СЂР° РїСЂРѕС€РµР» вЂ” РґРµР»Р°РµРј РјРѕР»РЅРёРµРЅРѕСЃРЅС‹Р№ РІС‹РїР°Рґ РІРїРµСЂРµРґ!
-                forwardSpeed = 0.5F;
-            }
-
-            this.guard.getMoveControl().strafe(forwardSpeed, sidewaysSpeed);
-
-            // Р¤РёРєСЃР°С†РёСЏ С‚РµР»Р° РЅР° РёРіСЂРѕРєР°
-            double dx = target.getX() - this.guard.getX();
-            double dz = target.getZ() - this.guard.getZ();
-            float yaw = (float) (Math.atan2(dz, dx) * 180.0D / Math.PI) - 90.0F;
-            this.guard.setYRot(yaw);
-            this.guard.setYBodyRot(yaw);
-            this.guard.setYHeadRot(yaw);
-        } else {
-            this.guard.getNavigation().moveTo(target, 1.1D);
-        }
-
-        if (attackCooldown > 0) {
-            attackCooldown--;
-        }
-
-        if (distSqr <= 9.0 && attackCooldown <= 0 && canSee) {
-            this.attackCooldown = 10 + this.guard.getRandom().nextInt(4);
-
-            if (this.guard.onGround() && this.guard.getRandom().nextFloat() < 0.6f && !this.guard.isUsingItem()) {
-                this.guard.getJumpControl().jump();
-            }
-
+        boolean canSee = this.guard.getSensing().hasLineOfSight(target);
+        if (dist <= 3.0 && attackCooldown <= 0 && canSee) {
+            this.attackCooldown = 12 + this.guard.getRandom().nextInt(6);
             performMeleeAttack();
         }
     }
 
     private void handleShieldBlock(double distSqr) {
         if (blockCooldown > 0) blockCooldown--;
-
-        ItemStack offhand = this.guard.getOffhandItem();
-        if (offhand.getItem() instanceof ShieldItem) {
+        if (this.guard.getOffhandItem().getItem() instanceof ShieldItem) {
             if (this.guard.isUsingItem()) {
                 blockDuration--;
                 if (blockDuration <= 0) {
                     this.guard.stopUsingItem();
-                    this.blockCooldown = 20 + this.guard.getRandom().nextInt(15);
+                    this.blockCooldown = 30 + this.guard.getRandom().nextInt(20);
                 }
-            } else if (blockCooldown <= 0 && distSqr <= 9.0) {
-                if (target.swingTime > 0 || target.getRandom().nextFloat() < 0.20f) {
+            } else if (blockCooldown <= 0 && distSqr <= 16.0) {
+                if (target.swingTime > 0 || this.guard.getRandom().nextFloat() < 0.15f) {
                     this.guard.startUsingItem(InteractionHand.OFF_HAND);
-                    this.blockDuration = 8 + this.guard.getRandom().nextInt(8);
+                    this.blockDuration = 10 + this.guard.getRandom().nextInt(10);
                 }
             }
         }
@@ -2909,13 +2907,13 @@ public class VillageGuardCombatGoal extends Goal {
     private void performMeleeAttack() {
         this.guard.swing(InteractionHand.MAIN_HAND);
 
-        boolean isCrit = !this.guard.onGround() && this.guard.getDeltaMovement().y < 0;
+        // РљСЂРёС‚: 20% С€Р°РЅСЃ РёР»Рё РїСЂС‹Р¶РѕРє
+        boolean isCrit = (!this.guard.onGround() && this.guard.getDeltaMovement().y < 0) ||
+                this.guard.getRandom().nextFloat() < 0.2f;
 
-        float damage = (float) this.guard.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.ATTACK_DAMAGE);
         if (isCrit) {
-            damage *= 1.5F;
             if (this.guard.level() instanceof ServerLevel sl) {
-                sl.sendParticles(ParticleTypes.CRIT, target.getX(), target.getY() + 1.0, target.getZ(), 12, 0.2, 0.2, 0.2, 0.15);
+                sl.sendParticles(ParticleTypes.CRIT, target.getX(), target.getY() + 1.0, target.getZ(), 8, 0.2, 0.2, 0.2, 0.1);
             }
             target.level().playSound(null, target.blockPosition(),
                     net.minecraft.sounds.SoundEvents.PLAYER_ATTACK_CRIT,
@@ -3390,6 +3388,697 @@ public class VillagerDepositTrashGoal extends Goal {
 
 
 ================================================================================
+[FILE]: \src\main\java\com\economymod\entity\ai\VillagerFarmingGoal.java
+================================================================================
+package com.economymod.entity.ai;
+
+import com.economymod.EconomyMod;
+import com.economymod.attachment.VillagerAttachment;
+import com.economymod.registry.ModAttachments;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.entity.ai.goal.Goal;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.npc.VillagerProfession;
+import net.minecraft.world.item.*;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.*;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.List;
+
+public class VillagerFarmingGoal extends Goal {
+    private final Villager villager;
+    private VillagerAttachment attachment;
+    private BlockPos targetCropPos;
+    private BlockPos targetSoilPos;
+    private BlockPos targetWaterPos;
+    private int workCooldown = 0;
+    private int useBoneMealCooldown = 0;
+    private boolean isPlacingWater = false;
+    private long lastLogTick = 0;
+    private static final int SEARCH_RADIUS = 20;
+
+    public VillagerFarmingGoal(Villager villager) {
+        this.villager = villager;
+        this.setFlags(EnumSet.of(Goal.Flag.MOVE, Goal.Flag.LOOK));
+    }
+
+    private boolean shouldLog() {
+        long now = villager.level().getGameTime();
+        if (now - lastLogTick > 200) {
+            lastLogTick = now;
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean canUse() {
+        if (villager.getVillagerData().getProfession() != VillagerProfession.FARMER) return false;
+        if (villager.level().isNight()) return false;
+        if (villager.isSleeping()) return false;
+        if (workCooldown > 0) {
+            workCooldown--;
+            return false;
+        }
+        attachment = villager.getData(ModAttachments.VILLAGER.get());
+        if (attachment == null) return false;
+
+        // 1. РЎРѕР·СЂРµРІС€РёРµ РєСѓР»СЊС‚СѓСЂС‹
+        BlockPos mature = findMatureCrop();
+        if (mature != null) {
+            if (shouldLog()) EconomyMod.LOGGER.info("[FARMING] {} РЅР°С€РµР» СЃРѕР·СЂРµРІС€СѓСЋ РєСѓР»СЊС‚СѓСЂСѓ {}", villager.getName().getString(), mature.toShortString());
+            targetCropPos = mature;
+            targetSoilPos = null;
+            targetWaterPos = null;
+            return true;
+        }
+
+        ItemStack hoe = findHoe();
+        if (hoe.isEmpty()) {
+            if (shouldLog()) EconomyMod.LOGGER.debug("[FARMING] {} РЅРµС‚ РјРѕС‚С‹РіРё", villager.getName().getString());
+            workCooldown = 20;
+            return false;
+        }
+
+        // 2. РЈРґРѕР±СЂРµРЅРёРµ
+        if (hasBoneMeal() && useBoneMealCooldown == 0) {
+            BlockPos unripe = findUnripeCrop();
+            if (unripe != null) {
+                if (shouldLog()) EconomyMod.LOGGER.info("[FARMING] {} СѓРґРѕР±СЂСЏРµС‚ РєСѓР»СЊС‚СѓСЂСѓ {}", villager.getName().getString(), unripe.toShortString());
+                targetCropPos = unripe;
+                return true;
+            }
+        }
+
+        // 3. РЎСѓС…РёРµ РіСЂСЏРґРєРё
+        BlockPos dryFarmland = findDryFarmland();
+        if (dryFarmland != null && hasWaterBucket()) {
+            if (shouldLog()) EconomyMod.LOGGER.info("[FARMING] {} РЅР°С€РµР» СЃСѓС…СѓСЋ РіСЂСЏРґРєСѓ {}", villager.getName().getString(), dryFarmland.toShortString());
+            targetWaterPos = dryFarmland;
+            isPlacingWater = true;
+            targetCropPos = null;
+            targetSoilPos = null;
+            return true;
+        }
+
+        // 4. РџСѓСЃС‚С‹Рµ РіСЂСЏРґРєРё РґР»СЏ РїРѕСЃР°РґРєРё
+        BlockPos emptyFarmland = findEmptyFarmland();
+        ItemStack seeds = findSeeds();
+        if (emptyFarmland != null) {
+            if (seeds.isEmpty()) {
+                if (shouldLog()) EconomyMod.LOGGER.debug("[FARMING] {} РЅРµС‚ СЃРµРјСЏРЅ РґР»СЏ РїРѕСЃР°РґРєРё", villager.getName().getString());
+            } else {
+                if (shouldLog()) EconomyMod.LOGGER.info("[FARMING] {} РЅР°С€РµР» РїСѓСЃС‚СѓСЋ РіСЂСЏРґРєСѓ РґР»СЏ РїРѕСЃР°РґРєРё {}", villager.getName().getString(), emptyFarmland.toShortString());
+                targetSoilPos = emptyFarmland;
+                targetCropPos = null;
+                targetWaterPos = null;
+                return true;
+            }
+        }
+
+        // 5. РџР°С…РѕС‚Р° Р·РµРјР»Рё
+        BlockPos tillable = findTillableDirt();
+        if (tillable != null) {
+            if (shouldLog()) EconomyMod.LOGGER.info("[FARMING] {} РЅР°С€РµР» Р·РµРјР»СЋ РґР»СЏ РїР°С…РѕС‚С‹ {}", villager.getName().getString(), tillable.toShortString());
+            targetSoilPos = tillable;
+            targetCropPos = null;
+            targetWaterPos = null;
+            return true;
+        }
+
+        if (shouldLog()) {
+            logSearchStatus();
+            EconomyMod.LOGGER.debug("[FARMING] {} РЅРµС‚ С†РµР»РµР№", villager.getName().getString());
+        }
+        workCooldown = 20;
+        return false;
+    }
+
+    private void logSearchStatus() {
+        BlockPos center = villager.blockPosition();
+        int matureCount = 0, unripeCount = 0, emptyFarmlandCount = 0, tillableCount = 0, dryFarmlandCount = 0;
+        for (int dx = -SEARCH_RADIUS; dx <= SEARCH_RADIUS; dx++) {
+            for (int dz = -SEARCH_RADIUS; dz <= SEARCH_RADIUS; dz++) {
+                for (int dy = -4; dy <= 4; dy++) {
+                    BlockPos pos = center.offset(dx, dy, dz);
+                    BlockState state = villager.level().getBlockState(pos);
+                    if (isMatureCrop(state)) matureCount++;
+                    if (isCrop(state) && !isMatureCrop(state)) unripeCount++;
+                    if (state.getBlock() == Blocks.FARMLAND) {
+                        BlockPos above = pos.above();
+                        if (villager.level().getBlockState(above).isAir()) emptyFarmlandCount++;
+                        int moisture = state.getValue(FarmBlock.MOISTURE);
+                        if (moisture == 0 && !isNearWater(pos)) dryFarmlandCount++;
+                    }
+                    if ((state.getBlock() == Blocks.DIRT || state.getBlock() == Blocks.GRASS_BLOCK || state.getBlock() == Blocks.COARSE_DIRT) &&
+                            villager.level().getBlockState(pos.above()).isAir()) {
+                        tillableCount++;
+                    }
+                }
+            }
+        }
+        EconomyMod.LOGGER.info("[FARMING] {} СЃС‚Р°С‚СѓСЃ: Р·СЂРµР»С‹С…={}, РЅРµР·СЂРµР»С‹С…={}, РїСѓСЃС‚С‹С… РіСЂСЏРґРѕРє={}, Р·РµРјР»Рё РґР»СЏ РїР°С…РѕС‚С‹={}, СЃСѓС…РёС… РіСЂСЏРґРѕРє={}",
+                villager.getName().getString(), matureCount, unripeCount, emptyFarmlandCount, tillableCount, dryFarmlandCount);
+    }
+
+    @Override
+    public void start() {
+        if (targetCropPos != null) {
+            villager.getNavigation().moveTo(targetCropPos.getX() + 0.5, targetCropPos.getY(), targetCropPos.getZ() + 0.5, 0.7);
+        } else if (targetSoilPos != null) {
+            villager.getNavigation().moveTo(targetSoilPos.getX() + 0.5, targetSoilPos.getY(), targetSoilPos.getZ() + 0.5, 0.7);
+        } else if (targetWaterPos != null) {
+            villager.getNavigation().moveTo(targetWaterPos.getX() + 0.5, targetWaterPos.getY(), targetWaterPos.getZ() + 0.5, 0.7);
+        }
+    }
+
+    @Override
+    public void tick() {
+        if (targetCropPos != null) handleCrop();
+        else if (targetSoilPos != null) handleSoil();
+        else if (targetWaterPos != null) handleWater();
+        else stop();
+    }
+
+    private void handleCrop() {
+        if (!villager.level().isLoaded(targetCropPos)) { stop(); return; }
+        double dist = villager.distanceToSqr(targetCropPos.getX() + 0.5, targetCropPos.getY(), targetCropPos.getZ() + 0.5);
+        if (dist < 3.0) {
+            villager.getNavigation().stop();
+            BlockState state = villager.level().getBlockState(targetCropPos);
+            if (isMatureCrop(state)) {
+                harvestCrop(targetCropPos);
+                workCooldown = 30;
+                stop();
+            } else if (isCrop(state) && !isMatureCrop(state) && hasBoneMeal()) {
+                applyBoneMeal(targetCropPos);
+                useBoneMealCooldown = 40;
+                workCooldown = 20;
+                stop();
+            } else {
+                stop();
+            }
+        } else {
+            villager.getNavigation().moveTo(targetCropPos.getX() + 0.5, targetCropPos.getY(), targetCropPos.getZ() + 0.5, 0.7);
+        }
+    }
+
+    private void handleSoil() {
+        if (!villager.level().isLoaded(targetSoilPos)) { stop(); return; }
+        double dist = villager.distanceToSqr(targetSoilPos.getX() + 0.5, targetSoilPos.getY(), targetSoilPos.getZ() + 0.5);
+        if (dist < 3.0) {
+            villager.getNavigation().stop();
+            BlockState state = villager.level().getBlockState(targetSoilPos);
+            if (state.getBlock() == Blocks.FARMLAND) {
+                plantSeeds(targetSoilPos);
+                workCooldown = 20;
+                stop();
+            } else if (state.getBlock() == Blocks.DIRT || state.getBlock() == Blocks.GRASS_BLOCK || state.getBlock() == Blocks.COARSE_DIRT) {
+                tillSoil(targetSoilPos);
+                workCooldown = 25;
+                stop();
+            } else {
+                stop();
+            }
+        } else {
+            villager.getNavigation().moveTo(targetSoilPos.getX() + 0.5, targetSoilPos.getY(), targetSoilPos.getZ() + 0.5, 0.7);
+        }
+    }
+
+    private void handleWater() {
+        if (!villager.level().isLoaded(targetWaterPos)) { stop(); return; }
+        double dist = villager.distanceToSqr(targetWaterPos.getX() + 0.5, targetWaterPos.getY(), targetWaterPos.getZ() + 0.5);
+        if (dist < 3.0) {
+            villager.getNavigation().stop();
+            placeWater(targetWaterPos);
+            workCooldown = 40;
+            stop();
+        } else {
+            villager.getNavigation().moveTo(targetWaterPos.getX() + 0.5, targetWaterPos.getY(), targetWaterPos.getZ() + 0.5, 0.7);
+        }
+    }
+
+    private BlockPos findMatureCrop() {
+        BlockPos center = villager.blockPosition();
+        for (int dx = -SEARCH_RADIUS; dx <= SEARCH_RADIUS; dx++) {
+            for (int dz = -SEARCH_RADIUS; dz <= SEARCH_RADIUS; dz++) {
+                for (int dy = -4; dy <= 4; dy++) {
+                    BlockPos pos = center.offset(dx, dy, dz);
+                    if (isMatureCrop(villager.level().getBlockState(pos))) {
+                        return pos.immutable();
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private BlockPos findUnripeCrop() {
+        BlockPos center = villager.blockPosition();
+        for (int dx = -SEARCH_RADIUS; dx <= SEARCH_RADIUS; dx++) {
+            for (int dz = -SEARCH_RADIUS; dz <= SEARCH_RADIUS; dz++) {
+                for (int dy = -4; dy <= 4; dy++) {
+                    BlockPos pos = center.offset(dx, dy, dz);
+                    BlockState state = villager.level().getBlockState(pos);
+                    if (isCrop(state) && !isMatureCrop(state)) {
+                        return pos.immutable();
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private BlockPos findDryFarmland() {
+        BlockPos center = villager.blockPosition();
+        for (int dx = -SEARCH_RADIUS; dx <= SEARCH_RADIUS; dx++) {
+            for (int dz = -SEARCH_RADIUS; dz <= SEARCH_RADIUS; dz++) {
+                for (int dy = -3; dy <= 3; dy++) {
+                    BlockPos pos = center.offset(dx, dy, dz);
+                    BlockState state = villager.level().getBlockState(pos);
+                    if (state.getBlock() == Blocks.FARMLAND) {
+                        int moisture = state.getValue(FarmBlock.MOISTURE);
+                        if (moisture == 0 && !isNearWater(pos)) {
+                            return pos.immutable();
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private BlockPos findEmptyFarmland() {
+        BlockPos center = villager.blockPosition();
+        BlockPos bestPos = null;
+        int bestScore = -1;
+
+        for (int dx = -SEARCH_RADIUS; dx <= SEARCH_RADIUS; dx++) {
+            for (int dz = -SEARCH_RADIUS; dz <= SEARCH_RADIUS; dz++) {
+                for (int dy = -3; dy <= 3; dy++) {
+                    BlockPos pos = center.offset(dx, dy, dz);
+                    BlockState state = villager.level().getBlockState(pos);
+
+                    if (state.getBlock() == Blocks.FARMLAND) {
+                        BlockPos above = pos.above();
+                        if (!villager.level().getBlockState(above).isAir()) continue;
+
+                        int score = 0;
+
+                        if (isNearWater(pos)) {
+                            score += 100;
+                        }
+
+                        int nearbyCrops = countNearbyCrops(pos, 3);
+                        score += Math.min(nearbyCrops * 15, 75);
+
+                        int distance = (int) Math.sqrt(center.distSqr(pos));
+                        score += (SEARCH_RADIUS - distance) * 2;
+
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bestPos = pos;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (bestScore > 0) {
+            EconomyMod.LOGGER.debug("[FARMING] {} РІС‹Р±СЂР°Р» РіСЂСЏРґРєСѓ РґР»СЏ РїРѕСЃР°РґРєРё {} СЃ СЂРµР№С‚РёРЅРіРѕРј {}",
+                    villager.getName().getString(), bestPos.toShortString(), bestScore);
+            return bestPos;
+        }
+        return null;
+    }
+
+    private BlockPos findTillableDirt() {
+        BlockPos center = villager.blockPosition();
+        BlockPos anchor = attachment.getPersonalChestPos() != null ? attachment.getPersonalChestPos() : center;
+        BlockPos bestPos = null;
+        int bestScore = -1;
+
+        for (int dx = -SEARCH_RADIUS; dx <= SEARCH_RADIUS; dx++) {
+            for (int dz = -SEARCH_RADIUS; dz <= SEARCH_RADIUS; dz++) {
+                for (int dy = -2; dy <= 2; dy++) {
+                    BlockPos pos = center.offset(dx, dy, dz);
+                    BlockState state = villager.level().getBlockState(pos);
+
+                    if (state.getBlock() == Blocks.DIRT || state.getBlock() == Blocks.GRASS_BLOCK || state.getBlock() == Blocks.COARSE_DIRT) {
+                        BlockPos above = pos.above();
+                        BlockState aboveState = villager.level().getBlockState(above);
+
+                        if (!aboveState.isAir()) continue;
+                        if (!isNearWater(pos)) continue;
+                        if (anchor != null && anchor.distSqr(pos) > 1024) continue;
+
+                        int score = 0;
+
+                        int nearbyFarmland = countNearbyBlocks(pos, Blocks.FARMLAND, 3);
+                        score += Math.min(nearbyFarmland * 15, 75);
+
+                        int distance = (int) Math.sqrt(center.distSqr(pos));
+                        score += (SEARCH_RADIUS - distance) * 2;
+
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bestPos = pos;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (bestScore > 0) {
+            EconomyMod.LOGGER.debug("[FARMING] {} РІС‹Р±СЂР°Р» Р·РµРјР»СЋ РґР»СЏ РїР°С…РѕС‚С‹ {} СЃ СЂРµР№С‚РёРЅРіРѕРј {}",
+                    villager.getName().getString(), bestPos.toShortString(), bestScore);
+            return bestPos;
+        }
+        return null;
+    }
+
+    private int countNearbyBlocks(BlockPos pos, Block target, int radius) {
+        int count = 0;
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    if (dx == 0 && dz == 0 && dy == 0) continue;
+                    BlockPos check = pos.offset(dx, dy, dz);
+                    if (villager.level().getBlockState(check).getBlock() == target) {
+                        count++;
+                    }
+                }
+            }
+        }
+        return count;
+    }
+
+    private int countNearbyCrops(BlockPos pos, int radius) {
+        int count = 0;
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    if (dx == 0 && dz == 0 && dy == 0) continue;
+                    BlockPos check = pos.offset(dx, dy, dz);
+                    if (isCrop(villager.level().getBlockState(check))) {
+                        count++;
+                    }
+                }
+            }
+        }
+        return count;
+    }
+
+    private boolean isNearWater(BlockPos pos) {
+        for (int dx = -4; dx <= 4; dx++) {
+            for (int dz = -4; dz <= 4; dz++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    BlockPos check = pos.offset(dx, dy, dz);
+                    if (villager.level().getBlockState(check).getBlock() == Blocks.WATER) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean hasWaterBucket() {
+        SimpleContainer inv = attachment.getInventory();
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            if (inv.getItem(i).getItem() == Items.WATER_BUCKET) return true;
+        }
+        return false;
+    }
+
+    private void placeWater(BlockPos farmlandPos) {
+        ServerLevel level = (ServerLevel) villager.level();
+        SimpleContainer inv = attachment.getInventory();
+
+        BlockState farmlandState = level.getBlockState(farmlandPos);
+        if (farmlandState.getBlock() != Blocks.FARMLAND) return;
+        if (farmlandState.getValue(FarmBlock.MOISTURE) > 0) return;
+
+        boolean canPlaceWaterHere = false;
+        for (Direction dir : Direction.Plane.HORIZONTAL) {
+            BlockPos neighbor = farmlandPos.relative(dir);
+            BlockState neighborState = level.getBlockState(neighbor);
+            if (neighborState.isSolid() || neighborState.isAir()) {
+                if (neighborState.getBlock() != Blocks.WATER) {
+                    canPlaceWaterHere = true;
+                    break;
+                }
+            }
+        }
+
+        if (!canPlaceWaterHere) {
+            EconomyMod.LOGGER.debug("[FARMING] {} РЅРµС‚ РјРµСЃС‚Р° РґР»СЏ РІРѕРґС‹ Сѓ {}", villager.getName().getString(), farmlandPos.toShortString());
+            return;
+        }
+
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            ItemStack stack = inv.getItem(i);
+            if (stack.getItem() == Items.WATER_BUCKET) {
+                BlockPos waterPos = null;
+                for (Direction dir : Direction.Plane.HORIZONTAL) {
+                    BlockPos neighbor = farmlandPos.relative(dir);
+                    BlockState neighborState = level.getBlockState(neighbor);
+                    if (neighborState.isAir() || !neighborState.isSolid()) {
+                        waterPos = neighbor;
+                        break;
+                    }
+                }
+
+                if (waterPos == null) {
+                    EconomyMod.LOGGER.debug("[FARMING] {} РЅРµ РЅР°С€С‘Р» РјРµСЃС‚Р° РґР»СЏ РІРѕРґС‹ Сѓ {}", villager.getName().getString(), farmlandPos.toShortString());
+                    return;
+                }
+
+                level.setBlock(waterPos, Blocks.WATER.defaultBlockState(), 3);
+                stack.shrink(1);
+                inv.addItem(new ItemStack(Items.BUCKET));
+                villager.swing(InteractionHand.MAIN_HAND);
+                level.playSound(null, waterPos, net.minecraft.sounds.SoundEvents.BUCKET_EMPTY, net.minecraft.sounds.SoundSource.BLOCKS, 1.0F, 1.0F);
+                EconomyMod.LOGGER.info("[FARMING] {} РїРѕСЃС‚Р°РІРёР» РІРѕРґСѓ РІ {} РґР»СЏ РіСЂСЏРґРєРё {}",
+                        villager.getName().getString(), waterPos.toShortString(), farmlandPos.toShortString());
+                break;
+            }
+        }
+    }
+
+    private void tillSoil(BlockPos pos) {
+        ServerLevel level = (ServerLevel) villager.level();
+        ItemStack hoe = findHoe();
+        if (hoe.isEmpty()) return;
+
+        BlockPos above = pos.above();
+        BlockState aboveState = level.getBlockState(above);
+        if (!aboveState.isAir()) {
+            level.destroyBlock(above, true, villager);
+            EconomyMod.LOGGER.debug("[FARMING] {} СѓР±СЂР°Р» РїСЂРµРїСЏС‚СЃС‚РІРёРµ {} РЅР°Рґ {}",
+                    villager.getName().getString(), aboveState.getBlock().getDescriptionId(), pos.toShortString());
+        }
+
+        if (level.getBlockState(pos).getBlock() == Blocks.FARMLAND) return;
+
+        level.setBlock(pos, Blocks.FARMLAND.defaultBlockState(), 3);
+
+        if (hoe.isDamageableItem()) {
+            hoe.setDamageValue(hoe.getDamageValue() + 1);
+            if (hoe.getDamageValue() >= hoe.getMaxDamage()) {
+                hoe.shrink(1);
+                level.playSound(null, pos, net.minecraft.sounds.SoundEvents.ITEM_BREAK, net.minecraft.sounds.SoundSource.NEUTRAL, 1.0F, 1.0F);
+            }
+        }
+
+        villager.swing(InteractionHand.MAIN_HAND);
+        level.playSound(null, pos, net.minecraft.sounds.SoundEvents.HOE_TILL, net.minecraft.sounds.SoundSource.BLOCKS, 1.0F, 1.0F);
+        attachment.decreaseHunger(0.15);
+    }
+
+    private void plantSeeds(BlockPos soilPos) {
+        ItemStack seeds = findSeeds();
+        if (seeds.isEmpty()) return;
+        BlockPos above = soilPos.above();
+        if (villager.level().getBlockState(above).isAir()) {
+            Block cropBlock = getCropFromSeeds(seeds.getItem());
+            if (cropBlock != null) {
+                villager.level().setBlock(above, cropBlock.defaultBlockState(), 3);
+                seeds.shrink(1);
+                villager.swing(InteractionHand.MAIN_HAND);
+                villager.level().playSound(null, above, net.minecraft.sounds.SoundEvents.CROP_PLANTED, net.minecraft.sounds.SoundSource.BLOCKS, 1.0F, 1.0F);
+                attachment.decreaseHunger(0.1);
+            }
+        }
+    }
+
+    private void harvestCrop(BlockPos pos) {
+        ServerLevel level = (ServerLevel) villager.level();
+        BlockState state = level.getBlockState(pos);
+        if (!isMatureCrop(state)) return;
+        float multiplier = getHoeMultiplier();
+        List<ItemStack> drops = new ArrayList<>();
+        if (state.getBlock() instanceof CropBlock crop) {
+            int defaultCount = 1 + villager.getRandom().nextInt(2);
+            int finalCount = (int) Math.min(defaultCount * multiplier, 64);
+            drops.add(new ItemStack(getCropProduct(state.getBlock()), finalCount));
+            if (crop == Blocks.WHEAT) {
+                int seedsCount = 1 + villager.getRandom().nextInt(2);
+                seedsCount = (int) Math.min(seedsCount * multiplier, 8);
+                drops.add(new ItemStack(Items.WHEAT_SEEDS, seedsCount));
+            } else if (crop == Blocks.BEETROOTS) {
+                int seedsCount = 1 + villager.getRandom().nextInt(2);
+                seedsCount = (int) Math.min(seedsCount * multiplier, 8);
+                drops.add(new ItemStack(Items.BEETROOT_SEEDS, seedsCount));
+            }
+        } else if (state.getBlock() == Blocks.SWEET_BERRY_BUSH) {
+            int count = 2 + villager.getRandom().nextInt(2);
+            count = (int) Math.min(count * multiplier, 8);
+            drops.add(new ItemStack(Items.SWEET_BERRIES, count));
+        } else if (state.getBlock() == Blocks.NETHER_WART) {
+            int count = 2 + villager.getRandom().nextInt(2);
+            count = (int) Math.min(count * multiplier, 8);
+            drops.add(new ItemStack(Items.NETHER_WART, count));
+        } else {
+            level.destroyBlock(pos, true, villager);
+            villager.swing(InteractionHand.MAIN_HAND);
+            attachment.decreaseHunger(0.2);
+            return;
+        }
+        level.destroyBlock(pos, false, villager);
+        for (ItemStack drop : drops) {
+            attachment.getInventory().addItem(drop);
+        }
+        villager.swing(InteractionHand.MAIN_HAND);
+        attachment.decreaseHunger(0.2);
+        if (villager.getRandom().nextFloat() < 0.3f) {
+            level.addFreshEntity(new net.minecraft.world.entity.ExperienceOrb(level, villager.getX(), villager.getY(), villager.getZ(), 1));
+        }
+    }
+
+    private float getHoeMultiplier() {
+        ItemStack hoe = findHoe();
+        if (hoe.isEmpty()) return 1.0f;
+        if (hoe.getItem() instanceof TieredItem tiered) {
+            Tier tier = tiered.getTier();
+            if (tier == Tiers.WOOD) return 1.0f;
+            if (tier == Tiers.STONE) return 1.3f;
+            if (tier == Tiers.IRON) return 1.6f;
+            if (tier == Tiers.DIAMOND) return 2.0f;
+            if (tier == Tiers.NETHERITE) return 2.5f;
+        }
+        return 1.0f;
+    }
+
+    private Item getCropProduct(Block block) {
+        if (block == Blocks.WHEAT) return Items.WHEAT;
+        if (block == Blocks.CARROTS) return Items.CARROT;
+        if (block == Blocks.POTATOES) return Items.POTATO;
+        if (block == Blocks.BEETROOTS) return Items.BEETROOT;
+        if (block == Blocks.MELON_STEM) return Items.MELON_SLICE;
+        if (block == Blocks.PUMPKIN_STEM) return Items.PUMPKIN;
+        return Items.AIR;
+    }
+
+    private boolean isCrop(BlockState state) {
+        return state.getBlock() instanceof CropBlock ||
+                state.getBlock() instanceof StemBlock ||
+                state.getBlock() == Blocks.SWEET_BERRY_BUSH ||
+                state.getBlock() == Blocks.NETHER_WART;
+    }
+
+    private boolean isMatureCrop(BlockState state) {
+        if (state.getBlock() instanceof CropBlock crop) return crop.isMaxAge(state);
+        if (state.getBlock() == Blocks.SWEET_BERRY_BUSH) return state.getValue(BlockStateProperties.AGE_3) == 3;
+        if (state.getBlock() == Blocks.NETHER_WART) return state.getValue(BlockStateProperties.AGE_3) == 3;
+        return false;
+    }
+
+    private boolean isSeed(Item item) {
+        return item == Items.WHEAT_SEEDS || item == Items.BEETROOT_SEEDS ||
+                item == Items.CARROT || item == Items.POTATO ||
+                item == Items.MELON_SEEDS || item == Items.PUMPKIN_SEEDS;
+    }
+
+    private Block getCropFromSeeds(Item seed) {
+        if (seed == Items.WHEAT_SEEDS) return Blocks.WHEAT;
+        if (seed == Items.BEETROOT_SEEDS) return Blocks.BEETROOTS;
+        if (seed == Items.CARROT) return Blocks.CARROTS;
+        if (seed == Items.POTATO) return Blocks.POTATOES;
+        if (seed == Items.MELON_SEEDS) return Blocks.MELON_STEM;
+        if (seed == Items.PUMPKIN_SEEDS) return Blocks.PUMPKIN_STEM;
+        return null;
+    }
+
+    private boolean hasBoneMeal() {
+        SimpleContainer inv = attachment.getInventory();
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            if (inv.getItem(i).is(Items.BONE_MEAL)) return true;
+        }
+        return false;
+    }
+
+    private void applyBoneMeal(BlockPos cropPos) {
+        ItemStack boneMeal = findBoneMeal();
+        if (!boneMeal.isEmpty()) {
+            if (BoneMealItem.applyBonemeal(boneMeal, villager.level(), cropPos, null)) {
+                boneMeal.shrink(1);
+                villager.level().levelEvent(1505, cropPos, 0);
+                villager.swing(InteractionHand.MAIN_HAND);
+            }
+        }
+    }
+
+    private ItemStack findBoneMeal() {
+        SimpleContainer inv = attachment.getInventory();
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            if (inv.getItem(i).is(Items.BONE_MEAL)) return inv.getItem(i);
+        }
+        return ItemStack.EMPTY;
+    }
+
+    private ItemStack findHoe() {
+        SimpleContainer inv = attachment.getInventory();
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            ItemStack stack = inv.getItem(i);
+            if (stack.getItem() instanceof HoeItem) return stack;
+        }
+        return ItemStack.EMPTY;
+    }
+
+    private ItemStack findSeeds() {
+        SimpleContainer inv = attachment.getInventory();
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            ItemStack stack = inv.getItem(i);
+            if (isSeed(stack.getItem())) return stack;
+        }
+        return ItemStack.EMPTY;
+    }
+
+    @Override
+    public void stop() {
+        targetCropPos = null;
+        targetSoilPos = null;
+        targetWaterPos = null;
+        if (useBoneMealCooldown > 0) useBoneMealCooldown--;
+    }
+
+    @Override
+    public boolean canContinueToUse() {
+        return (targetCropPos != null || targetSoilPos != null || targetWaterPos != null) && workCooldown == 0;
+    }
+}
+
+
+================================================================================
 [FILE]: \src\main\java\com\economymod\entity\ai\VillagerLumberjackGoal.java
 ================================================================================
 package com.economymod.entity.ai;
@@ -3686,6 +4375,7 @@ public class VillagerLumberjackGoal extends Goal {
 ================================================================================
 package com.economymod.entity.ai;
 
+import com.economymod.EconomyMod;
 import com.economymod.attachment.VillagerAttachment;
 import com.economymod.registry.ModAttachments;
 import com.economymod.entity.ai.mining.BridgeBuilder;
@@ -3695,13 +4385,14 @@ import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Blocks;
@@ -3712,8 +4403,7 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.common.Tags;
 
-import java.util.EnumSet;
-import java.util.List;
+import java.util.*;
 
 public class VillagerMiningGoal extends Goal {
     private final Villager villager;
@@ -3723,24 +4413,121 @@ public class VillagerMiningGoal extends Goal {
     private int maxBreakTicks = 20;
     private int currentStep = 0;
     private boolean isBridging = false;
+    private long lastLogTick = 0;
+    private int startY = -1;
+    private final Set<BlockPos> recentlyDestroyed = new HashSet<>();
+    private long lastCleanTick = 0;
+    private long lastEscapeTick = 0;
+    private int escapeAttempts = 0;
+    private BlockPos lastEscapeTarget = null;
+    private long targetStartTime = 0;
+    private static final long TARGET_TIMEOUT_TICKS = 200;
+    private long lastNoTargetLog = 0;
+    private BlockPos lastPos = null;
+    private long lastMoveTick = 0;
+    private static final long STUCK_TIMEOUT_TICKS = 40;
+
+    // Р§С‘СЂРЅС‹Р№ СЃРїРёСЃРѕРє РЅРµРґРѕСЃС‚РёР¶РёРјС‹С… С†РµР»РµР№
+    private final Map<BlockPos, Integer> failCount = new HashMap<>();
+    private final Map<BlockPos, Long> blockedUntil = new HashMap<>();
+    private static final int MAX_FAILS = 3;
+    private static final long BLOCK_DURATION_TICKS = 400;
 
     public VillagerMiningGoal(Villager villager) {
         this.villager = villager;
         this.setFlags(EnumSet.of(Goal.Flag.MOVE, Goal.Flag.LOOK));
     }
 
-    @Override
-    public boolean canUse() {
-        if (villager.level().isNight()) return false;
+    private boolean isFluid(BlockState state) {
+        return !state.getFluidState().isEmpty();
+    }
 
-        // РљР РРўРР§РќР«Р™ Р‘Р›РћРљ: РЎРѕРЅ РїРѕР»РЅРѕСЃС‚СЊСЋ СЃРІСЏС‰РµРЅРµРЅ
-        if (villager.isSleeping()) return false;
+    private int countNonFluidNeighbors(BlockPos pos) {
+        int count = 0;
+        for (Direction dir : Direction.values()) {
+            if (!isFluid(villager.level().getBlockState(pos.relative(dir)))) {
+                count++;
+            }
+        }
+        return count;
+    }
 
-        if (villager.getLastHurtByMob() != null && villager.level().getGameTime() - villager.getLastHurtByMobTimestamp() < 120) {
-            return false;
+    private boolean handleWaterSource(BlockPos waterPos, VillagerAttachment att) {
+        Set<BlockPos> waterBlocks = new HashSet<>();
+        Queue<BlockPos> queue = new ArrayDeque<>();
+        queue.add(waterPos);
+        waterBlocks.add(waterPos);
+
+        while (!queue.isEmpty()) {
+            BlockPos current = queue.poll();
+            for (Direction dir : Direction.values()) {
+                BlockPos neighbor = current.relative(dir);
+                if (!waterBlocks.contains(neighbor) && isFluid(villager.level().getBlockState(neighbor))) {
+                    waterBlocks.add(neighbor);
+                    queue.add(neighbor);
+                }
+            }
+            if (waterBlocks.size() > 30) break;
         }
 
+        List<BlockPos> sorted = new ArrayList<>(waterBlocks);
+        sorted.sort((a, b) -> Integer.compare(countNonFluidNeighbors(b), countNonFluidNeighbors(a)));
+
+        for (BlockPos pos : sorted) {
+            ItemStack block = BridgeBuilder.getPlaceableBlock(att);
+            if (block.isEmpty()) return false;
+            BridgeBuilder.performPlaceBlock(villager.level(), pos, block);
+            recentlyDestroyed.add(pos);
+        }
+        return true;
+    }
+
+    private boolean handleFlowingWater(BlockPos pos, VillagerAttachment att) {
+        ItemStack block = BridgeBuilder.getPlaceableBlock(att);
+        if (block.isEmpty()) return false;
+        BridgeBuilder.performPlaceBlock(villager.level(), pos, block);
+        recentlyDestroyed.add(pos);
+        return true;
+    }
+
+    private boolean handleWaterIfNeeded(BlockPos pos, VillagerAttachment att, int n, String label) {
+        if (!isFluid(villager.level().getBlockState(pos))) return false;
+        BlockState state = villager.level().getBlockState(pos);
+        if (state.getFluidState().isSource()) {
+            EconomyMod.LOGGER.info("[MINING] {} РѕР±РЅР°СЂСѓР¶РёР» РёСЃС‚РѕС‡РЅРёРє РІРѕРґС‹ РІ {}, РѕСЃСѓС€Р°СЋ РѕР±Р»Р°СЃС‚СЊ", villager.getName().getString(), pos.toShortString());
+            return handleWaterSource(pos, att);
+        } else {
+            EconomyMod.LOGGER.info("[MINING] {} РѕР±РЅР°СЂСѓР¶РёР» С‚РµРєСѓС‡СѓСЋ РІРѕРґСѓ РІ {}, Р·Р°С‚С‹РєР°СЋ", villager.getName().getString(), pos.toShortString());
+            return handleFlowingWater(pos, att);
+        }
+    }
+
+    @Override
+    public boolean canUse() {
+        long now = villager.level().getGameTime();
+        boolean shouldLog = (now - lastLogTick > 100);
+
+        if (villager.isInWater()) {
+            if (!villager.hasEffect(MobEffects.MOVEMENT_SPEED) ||
+                    villager.getEffect(MobEffects.MOVEMENT_SPEED).getDuration() < 20) {
+                villager.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED, 40, 1, false, false, true));
+            }
+        } else {
+            if (villager.hasEffect(MobEffects.MOVEMENT_SPEED)) {
+                villager.removeEffect(MobEffects.MOVEMENT_SPEED);
+            }
+        }
+
+        if (villager.level().isNight()) return false;
+        if (villager.isSleeping()) return false;
+        if (villager.getLastHurtByMob() != null && villager.level().getGameTime() - villager.getLastHurtByMobTimestamp() < 120) return false;
         if (isEnemyNearby()) return false;
+
+        if (now - lastCleanTick > 100) {
+            recentlyDestroyed.clear();
+            blockedUntil.entrySet().removeIf(entry -> entry.getValue() < now);
+            lastCleanTick = now;
+        }
 
         VillagerProfession prof = villager.getVillagerData().getProfession();
         if (prof != VillagerProfession.TOOLSMITH && prof != VillagerProfession.ARMORER && prof != VillagerProfession.WEAPONSMITH) return false;
@@ -3748,10 +4535,59 @@ public class VillagerMiningGoal extends Goal {
         VillagerAttachment att = villager.getData(ModAttachments.VILLAGER.get());
         if (att == null) return false;
 
+        boolean hasFreeSlot = false;
+        SimpleContainer inv = att.getInventory();
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            if (inv.getItem(i).isEmpty()) {
+                hasFreeSlot = true;
+                break;
+            }
+        }
+        if (!hasFreeSlot) return false;
+
         ItemStack pickaxe = att.getActivePickaxe();
         if (pickaxe.isEmpty()) return false;
 
-        // Р—Р°С‰РёС‚Р° РѕС‚ Р·Р°СЃС‚СЂРµРІР°РЅРёСЏ РІРЅСѓС‚СЂРё Р±Р»РѕРєРѕРІ (РёРіРЅРѕСЂРёСЂСѓРµРј РєСЂРѕРІР°С‚Рё Рё СЃСѓРЅРґСѓРєРё)
+        if (att.getMiningStartY() != -1) {
+            this.startY = att.getMiningStartY();
+        } else {
+            BlockPos chestPos = att.getPersonalChestPos();
+            if (chestPos != null) {
+                BlockPos startPos = chestPos.offset(0, 0, 1);
+                this.startY = startPos.getY();
+                att.setMiningStartY(this.startY);
+            }
+        }
+
+        // ========== Р’Р«РЎРЁРР™ РџР РРћР РРўР•Рў: Р РЈР”Рђ (РґР°Р¶Рµ РІРЅРµ СЂР°Р±РѕС‡РµРіРѕ РІСЂРµРјРµРЅРё) ==========
+        // РџСЂРѕРІРµСЂРєР° СЂСѓРґС‹ РІСЃРµРіРґР° СЂР°Р·СЂРµС€РµРЅР°
+        if (villager.level().getGameTime() % 10 == 0 || targetBlockPos == null) {
+            BlockPos current = villager.blockPosition();
+            for (BlockPos pos : BlockPos.betweenClosed(current.offset(-12, -6, -12), current.offset(12, 6, 12))) {
+                if (recentlyDestroyed.contains(pos)) continue;
+                if (startY != -1 && pos.getY() > startY + 10) continue;
+                if (pos.getY() > villager.blockPosition().getY() + 3) continue;
+                if (blockedUntil.containsKey(pos) && blockedUntil.get(pos) > now) continue;
+                BlockState state = villager.level().getBlockState(pos);
+                if (state.is(Tags.Blocks.ORES) && isMinable(state) && isToolTiredCorrect(pickaxe, state) && isSafeToMine(pos, att)) {
+                    if (hasLineOfSightToBlock(pos)) {
+                        this.targetBlockPos = pos.immutable();
+                        this.isBridging = false;
+                        EconomyMod.LOGGER.info("[MINING] {} РЅР°С€С‘Р» СЂСѓРґСѓ {} РІ {}", villager.getName().getString(), state.getBlock().getName().getString(), pos.toShortString());
+                        targetStartTime = villager.level().getGameTime();
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // РџСЂРѕРІРµСЂРєР° СЂР°Р±РѕС‡РµРіРѕ РІСЂРµРјРµРЅРё: РµСЃР»Рё РЅРµ СЂР°Р±РѕС‡РµРµ РІСЂРµРјСЏ, Р·Р°РїСЂРµС‰Р°РµРј РІСЃРµ РѕСЃС‚Р°Р»СЊРЅС‹Рµ РґРµР№СЃС‚РІРёСЏ (РєСЂРѕРјРµ СЂСѓРґС‹)
+        long dayTime = villager.level().getGameTime() % 24000;
+        boolean isWorkingTime = (dayTime >= 6000 && dayTime < 18000);
+        if (!isWorkingTime) {
+            return false;
+        }
+
         BlockPos feetPos = villager.blockPosition();
         BlockPos headPos = feetPos.above();
         BlockState stateFeetPos = villager.level().getBlockState(feetPos);
@@ -3760,44 +4596,38 @@ public class VillagerMiningGoal extends Goal {
         if (isPathBlocked(stateFeetPos) && isMinable(stateFeetPos) &&
                 !(stateFeetPos.getBlock() instanceof net.minecraft.world.level.block.BedBlock) &&
                 !(stateFeetPos.getBlock() instanceof net.minecraft.world.level.block.ChestBlock)) {
+            if (blockedUntil.containsKey(feetPos) && blockedUntil.get(feetPos) > now) return false;
             this.targetBlockPos = feetPos;
             this.isBridging = false;
+            EconomyMod.LOGGER.info("[MINING] {} РєРѕРїР°РµС‚ Р±Р»РѕРє РїРѕРґ РЅРѕРіР°РјРё: {}", villager.getName().getString(), feetPos.toShortString());
+            targetStartTime = villager.level().getGameTime();
             return true;
         }
         if (isPathBlocked(stateHeadPos) && isMinable(stateHeadPos) &&
                 !(stateHeadPos.getBlock() instanceof net.minecraft.world.level.block.BedBlock) &&
                 !(stateHeadPos.getBlock() instanceof net.minecraft.world.level.block.ChestBlock)) {
+            if (blockedUntil.containsKey(headPos) && blockedUntil.get(headPos) > now) return false;
             this.targetBlockPos = headPos;
             this.isBridging = false;
+            EconomyMod.LOGGER.info("[MINING] {} РєРѕРїР°РµС‚ Р±Р»РѕРє РЅР° СѓСЂРѕРІРЅРµ РіРѕР»РѕРІС‹: {}", villager.getName().getString(), headPos.toShortString());
+            targetStartTime = villager.level().getGameTime();
             return true;
         }
-
-        boolean shouldLog = (villager.level().getGameTime() % 100 == 0);
 
         if (activeVeinBlockPos != null) {
             BlockState state = villager.level().getBlockState(activeVeinBlockPos);
             if (isMinable(state) && isToolTiredCorrect(pickaxe, state) && isSafeToMine(activeVeinBlockPos, att) && hasLineOfSightToBlock(activeVeinBlockPos)) {
-                this.targetBlockPos = activeVeinBlockPos;
-                this.isBridging = false;
-                return true;
+                if (blockedUntil.containsKey(activeVeinBlockPos) && blockedUntil.get(activeVeinBlockPos) > now) {
+                    this.activeVeinBlockPos = null;
+                } else {
+                    this.targetBlockPos = activeVeinBlockPos;
+                    this.isBridging = false;
+                    EconomyMod.LOGGER.info("[MINING] {} РїСЂРѕРґРѕР»Р¶Р°РµС‚ Р¶РёР»Сѓ РІ {}", villager.getName().getString(), activeVeinBlockPos.toShortString());
+                    targetStartTime = villager.level().getGameTime();
+                    return true;
+                }
             } else {
                 this.activeVeinBlockPos = null;
-            }
-        }
-
-        // РЎРІРµСЂС…-РїСЂРёРѕСЂРёС‚РµС‚: СЃРєР°РЅРёСЂРѕРІР°РЅРёРµ РѕР±РЅР°Р¶РµРЅРЅС‹С… СЂСѓРґ РІ СЃС„РµСЂРµ 10 Р±Р»РѕРєРѕРІ (СЃ РїСЂРѕРІРµСЂРєРѕР№ РІРёРґРёРјРѕСЃС‚Рё)
-        if (villager.level().getGameTime() % 40 == 0 || targetBlockPos != null) {
-            BlockPos current = villager.blockPosition();
-            for (BlockPos pos : BlockPos.betweenClosed(current.offset(-10, -5, -10), current.offset(10, 5, 10))) {
-                BlockState state = villager.level().getBlockState(pos);
-                if (state.is(Tags.Blocks.ORES) && isMinable(state) && isToolTiredCorrect(pickaxe, state) && isSafeToMine(pos, att)) {
-                    if (isOreExposed(pos) && hasLineOfSightToBlock(pos)) {
-                        this.targetBlockPos = pos.immutable();
-                        this.isBridging = false;
-                        if (shouldLog) com.economymod.EconomyMod.LOGGER.info("РњРђР™РќРРќР“ Р”Р•Р‘РђР“: РћР±РЅР°СЂСѓР¶РµРЅР° СЂСѓРґР° РІ РїРѕР»Рµ Р·СЂРµРЅРёСЏ: {}", pos.toShortString());
-                        return true;
-                    }
-                }
             }
         }
 
@@ -3808,42 +4638,66 @@ public class VillagerMiningGoal extends Goal {
                 if (villager.level().getBlockState(pos).is(Blocks.CHEST)) {
                     att.setPersonalChestPos(pos.immutable());
                     chestPos = pos.immutable();
+                    EconomyMod.LOGGER.info("[MINING] {} РЅР°С€С‘Р» СЃСѓРЅРґСѓРє РґР»СЏ С€Р°С…С‚С‹: {}", villager.getName().getString(), chestPos.toShortString());
+                    BlockPos startPos = chestPos.offset(0, 0, 1);
+                    this.startY = startPos.getY();
+                    att.setMiningStartY(this.startY);
                     break;
                 }
             }
         }
 
-        // РРЎРџР РђР’Р›Р•РќРћ (РЈРјРЅР°СЏ РѕС‚РІСЏР·РєР°): Р•СЃР»Рё РјС‹ РїРѕР»РЅРѕСЃС‚СЊСЋ СЂР°СЃРєРѕРїР°Р»Рё С‚СѓРЅРЅРµР»СЊ РЅР° 100 Р±Р»РѕРєРѕРІ Рё РєРѕРїР°С‚СЊ Р±РѕР»СЊС€Рµ РЅРµС‡РµРіРѕ вЂ” Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё РѕС‚РІСЏР·С‹РІР°РµРјСЃСЏ РѕС‚ СЌС‚РѕРіРѕ СЃСѓРЅРґСѓРєР°!
-        // Р­С‚Рѕ РїРѕР·РІРѕР»РёС‚ Р¶РёС‚РµР»СЋ СѓР№С‚Рё РІ РіРѕСЂРѕРґ Р·Р°РЅРёРјР°С‚СЊСЃСЏ РґСЂСѓРіРёРјРё РґРµР»Р°РјРё, Р° РёРіСЂРѕРєСѓ вЂ” РїРµСЂРµСЃС‚Р°РІРёС‚СЊ СЃСѓРЅРґСѓРє РІ РЅРѕРІСѓСЋ РіРѕСЂСѓ РґР»СЏ РЅРѕРІРѕР№ С€Р°С…С‚С‹
         if (chestPos != null && currentStep >= 98) {
             att.setPersonalChestPos(null);
+            att.setMiningStartY(-1);
+            this.startY = -1;
             chestPos = null;
-            if (shouldLog) com.economymod.EconomyMod.LOGGER.info("РњРђР™РќРРќР“: РЁР°С…С‚Р° РЅР° 100 Р±Р»РѕРєРѕРІ РїРѕР»РЅРѕСЃС‚СЊСЋ Р·Р°РІРµСЂС€РµРЅР°! РЎР±СЂР°СЃС‹РІР°СЋ РїСЂРёРІСЏР·РєСѓ Рє СЃСѓРЅРґСѓРєСѓ.");
+            EconomyMod.LOGGER.info("[MINING] {} Р·Р°РІРµСЂС€РёР» С€Р°С…С‚Сѓ (98 С€Р°РіРѕРІ), РёС‰РµС‚ РЅРѕРІС‹Р№ СЃСѓРЅРґСѓРє", villager.getName().getString());
         }
 
         BlockPos startPos = (chestPos != null) ? chestPos.offset(0, 0, 1) : villager.blockPosition().immutable();
+        if (this.startY == -1) {
+            this.startY = startPos.getY();
+            att.setMiningStartY(this.startY);
+        }
         int x = startPos.getX();
 
-        // Р¦РёРєР» 1: Р РµРјРѕРЅС‚ РїРѕР»Р° Рё СѓСЃС‚СЂР°РЅРµРЅРёРµ РїСЂРѕС‚РµС‡РµРє
         for (int n = 0; n < 100; n++) {
             int z = startPos.getZ() + n;
             int floorY = (chestPos != null) ? ((n < 3) ? (startPos.getY() - 1) : (startPos.getY() - ((n - 3) / 2) - 1)) : (startPos.getY() - (n / 2) - 1);
-
             BlockPos feetL = new BlockPos(x, floorY + 1, z);
             BlockPos belowL = feetL.below();
             BlockPos feetR = new BlockPos(x + 1, floorY + 1, z);
             BlockPos belowR = feetR.below();
 
             if (isPathPassable(villager.level(), feetL) && isHazardousOrVoid(villager.level(), belowL)) {
-                return tryRequestBridge(belowL, att, shouldLog, n, "Р›Р•Р’Р«Р™ РџРћР›");
+                if (!recentlyDestroyed.contains(belowL) && !(blockedUntil.containsKey(belowL) && blockedUntil.get(belowL) > now)) {
+                    if (tryRequestBridge(belowL, att, false, n, "Р›Р•Р’Р«Р™ РџРћР›")) {
+                        targetStartTime = villager.level().getGameTime();
+                        return true;
+                    }
+                }
             }
             if (isPathPassable(villager.level(), feetR) && isHazardousOrVoid(villager.level(), belowR)) {
-                return tryRequestBridge(belowR, att, shouldLog, n, "РџР РђР’Р«Р™ РџРћР›");
+                if (!recentlyDestroyed.contains(belowR) && !(blockedUntil.containsKey(belowR) && blockedUntil.get(belowR) > now)) {
+                    if (tryRequestBridge(belowR, att, false, n, "РџР РђР’Р«Р™ РџРћР›")) {
+                        targetStartTime = villager.level().getGameTime();
+                        return true;
+                    }
+                }
             }
 
             if (n > 0) {
-                if (isFluidOrUnstable(villager.level(), feetL)) return tryPlugBlock(feetL, att, shouldLog, n, "Р›Р•Р’Р«Р• РќРћР“Р");
-                if (isFluidOrUnstable(villager.level(), feetR)) return tryPlugBlock(feetR, att, shouldLog, n, "РџР РђР’Р«Р• РќРћР“Р");
+                if (isFluidOrUnstable(villager.level(), feetL)) {
+                    if (!recentlyDestroyed.contains(feetL) && !(blockedUntil.containsKey(feetL) && blockedUntil.get(feetL) > now)) {
+                        if (handleWaterIfNeeded(feetL, att, n, "Р›Р•Р’Р«Р• РќРћР“Р")) return false;
+                    }
+                }
+                if (isFluidOrUnstable(villager.level(), feetR)) {
+                    if (!recentlyDestroyed.contains(feetR) && !(blockedUntil.containsKey(feetR) && blockedUntil.get(feetR) > now)) {
+                        if (handleWaterIfNeeded(feetR, att, n, "РџР РђР’Р«Р• РќРћР“Р")) return false;
+                    }
+                }
             }
 
             BlockState stateFeetL = villager.level().getBlockState(feetL);
@@ -3859,33 +4713,56 @@ public class VillagerMiningGoal extends Goal {
             }
         }
 
-        // Р¦РёРєР» 2: Р Р°СЃС€РёСЂРµРЅРёРµ С€Р°С…С‚С‹ РІРїРµСЂРµРґ (2x3 С‚СѓРЅРЅРµР»СЊ)
         for (int n = 0; n < 100; n++) {
             int z = startPos.getZ() + n;
             int floorY = (chestPos != null) ? ((n < 3) ? (startPos.getY() - 1) : (startPos.getY() - ((n - 3) / 2) - 1)) : (startPos.getY() - (n / 2) - 1);
-
             BlockPos feetL = new BlockPos(x, floorY + 1, z);
             BlockPos headL = feetL.above();
             BlockPos ceilL = feetL.above(2);
             BlockPos belowL = feetL.below();
-
             BlockPos feetR = new BlockPos(x + 1, floorY + 1, z);
             BlockPos headR = feetR.above();
             BlockPos ceilR = feetR.above(2);
-            BlockPos MathR = feetR.below();
+            BlockPos belowR = feetR.below();
 
             if (isPathPassable(villager.level(), feetL) && isHazardousOrVoid(villager.level(), belowL)) {
-                return tryRequestBridge(belowL, att, shouldLog, n, "Р›Р•Р’Р«Р™ РџРћР›");
+                if (!recentlyDestroyed.contains(belowL) && !(blockedUntil.containsKey(belowL) && blockedUntil.get(belowL) > now)) {
+                    if (tryRequestBridge(belowL, att, false, n, "Р›Р•Р’Р«Р™ РџРћР›")) {
+                        targetStartTime = villager.level().getGameTime();
+                        return true;
+                    }
+                }
             }
-            if (isPathPassable(villager.level(), feetR) && isHazardousOrVoid(villager.level(), MathR)) {
-                return tryRequestBridge(MathR, att, shouldLog, n, "РџР РђР’Р«Р™ РџРћР›");
+            if (isPathPassable(villager.level(), feetR) && isHazardousOrVoid(villager.level(), belowR)) {
+                if (!recentlyDestroyed.contains(belowR) && !(blockedUntil.containsKey(belowR) && blockedUntil.get(belowR) > now)) {
+                    if (tryRequestBridge(belowR, att, false, n, "РџР РђР’Р«Р™ РџРћР›")) {
+                        targetStartTime = villager.level().getGameTime();
+                        return true;
+                    }
+                }
             }
 
             if (n > 0) {
-                if (isFluidOrUnstable(villager.level(), feetL)) return tryPlugBlock(feetL, att, shouldLog, n, "Р›Р•Р’Р«Р• РќРћР“Р (Р¦2)");
-                if (isFluidOrUnstable(villager.level(), feetR)) return tryPlugBlock(feetR, att, shouldLog, n, "РџР РђР’Р«Р• РќРћР“Р (Р¦2)");
-                if (isFluidOrUnstable(villager.level(), headL)) return tryPlugBlock(headL, att, shouldLog, n, "Р›Р•Р’РђРЇ Р“РћР›РћР’Рђ (Р¦2)");
-                if (isFluidOrUnstable(villager.level(), headR)) return tryPlugBlock(headR, att, shouldLog, n, "РџР РђР’РђРЇ Р“РћР›РћР’Рђ (Р¦2)");
+                if (isFluidOrUnstable(villager.level(), feetL)) {
+                    if (!recentlyDestroyed.contains(feetL) && !(blockedUntil.containsKey(feetL) && blockedUntil.get(feetL) > now)) {
+                        if (handleWaterIfNeeded(feetL, att, n, "Р›Р•Р’Р«Р• РќРћР“Р (Р¦2)")) return false;
+                    }
+                }
+                if (isFluidOrUnstable(villager.level(), feetR)) {
+                    if (!recentlyDestroyed.contains(feetR) && !(blockedUntil.containsKey(feetR) && blockedUntil.get(feetR) > now)) {
+                        if (handleWaterIfNeeded(feetR, att, n, "РџР РђР’Р«Р• РќРћР“Р (Р¦2)")) return false;
+                    }
+                }
+                if (isFluidOrUnstable(villager.level(), headL)) {
+                    if (!recentlyDestroyed.contains(headL) && !(blockedUntil.containsKey(headL) && blockedUntil.get(headL) > now)) {
+                        if (handleWaterIfNeeded(headL, att, n, "Р›Р•Р’РђРЇ Р“РћР›РћР’Рђ (Р¦2)")) return false;
+                    }
+                }
+                if (isFluidOrUnstable(villager.level(), headR)) {
+                    if (!recentlyDestroyed.contains(headR) && !(blockedUntil.containsKey(headR) && blockedUntil.get(headR) > now)) {
+                        if (handleWaterIfNeeded(headR, att, n, "РџР РђР’РђРЇ Р“РћР›РћР’Рђ (Р¦2)")) return false;
+                    }
+                }
             }
 
             BlockState stateFeetL = villager.level().getBlockState(feetL);
@@ -3895,53 +4772,81 @@ public class VillagerMiningGoal extends Goal {
             BlockState stateHeadR = villager.level().getBlockState(headR);
             BlockState stateCeilR = villager.level().getBlockState(ceilR);
 
-            if (n >= 12 && n % 6 == 0 &&
-                    !isPathBlocked(stateFeetL) && !isPathBlocked(stateHeadL) && !isPathBlocked(stateCeilL) &&
+            if (n >= 12 && n % 6 == 0 && !isPathBlocked(stateFeetL) && !isPathBlocked(stateHeadL) && !isPathBlocked(stateCeilL) &&
                     villager.level().getBlockState(ceilL.above()).isSolid()) {
-
                 BlockPos branchTarget = scanHorizontalBranch(x, floorY, z, 1, pickaxe);
-                if (branchTarget != null) { this.targetBlockPos = branchTarget; return true; }
+                if (branchTarget != null && !recentlyDestroyed.contains(branchTarget) && !(blockedUntil.containsKey(branchTarget) && blockedUntil.get(branchTarget) > now)) {
+                    this.targetBlockPos = branchTarget;
+                    EconomyMod.LOGGER.info("[MINING] {} РЅР°С‡Р°Р» РіРѕСЂРёР·РѕРЅС‚Р°Р»СЊРЅРѕРµ РѕС‚РІРµС‚РІР»РµРЅРёРµ РІРїСЂР°РІРѕ", villager.getName().getString());
+                    targetStartTime = villager.level().getGameTime();
+                    return true;
+                }
                 branchTarget = scanHorizontalBranch(x, floorY, z, -1, pickaxe);
-                if (branchTarget != null) { this.targetBlockPos = branchTarget; return true; }
+                if (branchTarget != null && !recentlyDestroyed.contains(branchTarget) && !(blockedUntil.containsKey(branchTarget) && blockedUntil.get(branchTarget) > now)) {
+                    this.targetBlockPos = branchTarget;
+                    EconomyMod.LOGGER.info("[MINING] {} РЅР°С‡Р°Р» РіРѕСЂРёР·РѕРЅС‚Р°Р»СЊРЅРѕРµ РѕС‚РІРµС‚РІР»РµРЅРёРµ РІР»РµРІРѕ", villager.getName().getString());
+                    targetStartTime = villager.level().getGameTime();
+                    return true;
+                }
             }
 
-            // РђРІС‚РѕРјР°С‚РёС‡РµСЃРєРѕРµ РІС‹РєР°РїС‹РІР°РЅРёРµ СЂСѓРґ РІ РїРѕР»Сѓ С‚СѓРЅРЅРµР»СЏ РїРѕРґ РЅРѕРіР°РјРё
             BlockState stateBelowL = villager.level().getBlockState(belowL);
-            BlockState stateBelowR = villager.level().getBlockState(MathR);
-            if (stateBelowL.is(Tags.Blocks.ORES) && isMinable(stateBelowL) && isSafeToMine(belowL, att)) {
+            BlockState stateBelowR = villager.level().getBlockState(belowR);
+            if (stateBelowL.is(Tags.Blocks.ORES) && isMinable(stateBelowL) && isSafeToMine(belowL, att) && !recentlyDestroyed.contains(belowL) && !(blockedUntil.containsKey(belowL) && blockedUntil.get(belowL) > now)) {
                 this.targetBlockPos = belowL.immutable();
+                EconomyMod.LOGGER.info("[MINING] {} РєРѕРїР°РµС‚ СЂСѓРґСѓ РїРѕРґ РЅРѕРіР°РјРё СЃР»РµРІР°: {}", villager.getName().getString(), belowL.toShortString());
+                targetStartTime = villager.level().getGameTime();
                 return true;
             }
-            if (stateBelowR.is(Tags.Blocks.ORES) && isMinable(stateBelowR) && isSafeToMine(MathR, att)) {
-                this.targetBlockPos = MathR.immutable();
+            if (stateBelowR.is(Tags.Blocks.ORES) && isMinable(stateBelowR) && isSafeToMine(belowR, att) && !recentlyDestroyed.contains(belowR) && !(blockedUntil.containsKey(belowR) && blockedUntil.get(belowR) > now)) {
+                this.targetBlockPos = belowR.immutable();
+                EconomyMod.LOGGER.info("[MINING] {} РєРѕРїР°РµС‚ СЂСѓРґСѓ РїРѕРґ РЅРѕРіР°РјРё СЃРїСЂР°РІР°: {}", villager.getName().getString(), belowR.toShortString());
+                targetStartTime = villager.level().getGameTime();
                 return true;
             }
 
             if (isPathBlocked(stateFeetL) || isPathBlocked(stateHeadL) || isPathBlocked(stateCeilL) ||
                     isPathBlocked(stateFeetR) || isPathBlocked(stateHeadR) || isPathBlocked(stateCeilR)) {
-
                 this.currentStep = n;
                 this.isBridging = false;
 
-                // РЈРїСЂРµР¶РґР°СЋС‰Р°СЏ Р·Р°С‰РёС‚Р° РѕС‚ Р·Р°С‚РѕРїР»РµРЅРёСЏ (peek-ahead n + 1)
                 int nextZ = z + 1;
                 int nextFloorY = (chestPos != null) ? (((n + 1) < 3) ? (startPos.getY() - 1) : (startPos.getY() - (((n + 1) - 3) / 2) - 1)) : (startPos.getY() - ((n + 1) / 2) - 1);
                 BlockPos nextFeetL = new BlockPos(x, nextFloorY + 1, nextZ);
                 BlockPos nextFeetR = new BlockPos(x + 1, nextFloorY + 1, nextZ);
 
-                if (isFluidOrUnstable(villager.level(), nextFeetL)) return tryPlugBlock(nextFeetL, att, shouldLog, n + 1, "РЈРџР Р•Р–Р”РђР®Р©РР™ Р›Р•Р’Р«Р™ РџРћР›");
-                if (isFluidOrUnstable(villager.level(), nextFeetR)) return tryPlugBlock(nextFeetR, att, shouldLog, n + 1, "РЈРџР Р•Р–Р”РђР®Р©РР™ РџР РђР’Р«Р™ РџРћР›");
-                if (isFluidOrUnstable(villager.level(), nextFeetL.above())) return tryPlugBlock(nextFeetL.above(), att, shouldLog, n + 1, "РЈРџР Р•Р–Р”РђР®Р©РђРЇ Р›Р•Р’РђРЇ Р“РћР›РћР’Рђ");
-                if (isFluidOrUnstable(villager.level(), nextFeetR.above())) return tryPlugBlock(nextFeetR.above(), att, shouldLog, n + 1, "РЈРџР Р•Р–Р”РђР®Р©РђРЇ РџР РђР’РђРЇ Р“РћР›РћР’Рђ");
+                if (isFluidOrUnstable(villager.level(), nextFeetL)) {
+                    if (!recentlyDestroyed.contains(nextFeetL) && !(blockedUntil.containsKey(nextFeetL) && blockedUntil.get(nextFeetL) > now)) {
+                        if (handleWaterIfNeeded(nextFeetL, att, n + 1, "РЈРџР Р•Р–Р”РђР®Р©РР™ Р›Р•Р’Р«Р™ РџРћР›")) return false;
+                    }
+                }
+                if (isFluidOrUnstable(villager.level(), nextFeetR)) {
+                    if (!recentlyDestroyed.contains(nextFeetR) && !(blockedUntil.containsKey(nextFeetR) && blockedUntil.get(nextFeetR) > now)) {
+                        if (handleWaterIfNeeded(nextFeetR, att, n + 1, "РЈРџР Р•Р–Р”РђР®Р©РР™ РџР РђР’Р«Р™ РџРћР›")) return false;
+                    }
+                }
+                if (isFluidOrUnstable(villager.level(), nextFeetL.above())) {
+                    if (!recentlyDestroyed.contains(nextFeetL.above()) && !(blockedUntil.containsKey(nextFeetL.above()) && blockedUntil.get(nextFeetL.above()) > now)) {
+                        if (handleWaterIfNeeded(nextFeetL.above(), att, n + 1, "РЈРџР Р•Р–Р”РђР®Р©РђРЇ Р›Р•Р’РђРЇ Р“РћР›РћР’Рђ")) return false;
+                    }
+                }
+                if (isFluidOrUnstable(villager.level(), nextFeetR.above())) {
+                    if (!recentlyDestroyed.contains(nextFeetR.above()) && !(blockedUntil.containsKey(nextFeetR.above()) && blockedUntil.get(nextFeetR.above()) > now)) {
+                        if (handleWaterIfNeeded(nextFeetR.above(), att, n + 1, "РЈРџР Р•Р–Р”РђР®Р©РђРЇ РџР РђР’РђРЇ Р“РћР›РћР’Рђ")) return false;
+                    }
+                }
 
-                // РљРѕРїР°РµРј Р±Р»РѕРєРё СЃРµС‡РµРЅРёСЏ 2С…3 СЃРІРµСЂС…Сѓ-РІРЅРёР·
-                if (isPathBlocked(stateCeilL) && isMinable(stateCeilL) && isSafeToMine(ceilL, att)) this.targetBlockPos = ceilL;
-                else if (isPathBlocked(stateCeilR) && isMinable(stateCeilR) && isSafeToMine(ceilR, att)) this.targetBlockPos = ceilR;
-                else if (isPathBlocked(stateHeadL) && isMinable(stateHeadL) && isSafeToMine(headL, att)) this.targetBlockPos = headL;
-                else if (isPathBlocked(stateHeadR) && isMinable(stateHeadR) && isSafeToMine(headR, att)) this.targetBlockPos = headR;
-                else if (isPathBlocked(stateFeetL) && isMinable(stateFeetL) && isSafeToMine(feetL, att)) this.targetBlockPos = feetL;
-                else if (isPathBlocked(stateFeetR) && isMinable(stateFeetR) && isSafeToMine(feetR, att)) this.targetBlockPos = feetR;
+                if (isPathBlocked(stateCeilL) && isMinable(stateCeilL) && isSafeToMine(ceilL, att) && !recentlyDestroyed.contains(ceilL) && !(blockedUntil.containsKey(ceilL) && blockedUntil.get(ceilL) > now)) this.targetBlockPos = ceilL;
+                else if (isPathBlocked(stateCeilR) && isMinable(stateCeilR) && isSafeToMine(ceilR, att) && !recentlyDestroyed.contains(ceilR) && !(blockedUntil.containsKey(ceilR) && blockedUntil.get(ceilR) > now)) this.targetBlockPos = ceilR;
+                else if (isPathBlocked(stateHeadL) && isMinable(stateHeadL) && isSafeToMine(headL, att) && !recentlyDestroyed.contains(headL) && !(blockedUntil.containsKey(headL) && blockedUntil.get(headL) > now)) this.targetBlockPos = headL;
+                else if (isPathBlocked(stateHeadR) && isMinable(stateHeadR) && isSafeToMine(headR, att) && !recentlyDestroyed.contains(headR) && !(blockedUntil.containsKey(headR) && blockedUntil.get(headR) > now)) this.targetBlockPos = headR;
+                else if (isPathBlocked(stateFeetL) && isMinable(stateFeetL) && isSafeToMine(feetL, att) && !recentlyDestroyed.contains(feetL) && !(blockedUntil.containsKey(feetL) && blockedUntil.get(feetL) > now)) this.targetBlockPos = feetL;
+                else if (isPathBlocked(stateFeetR) && isMinable(stateFeetR) && isSafeToMine(feetR, att) && !recentlyDestroyed.contains(feetR) && !(blockedUntil.containsKey(feetR) && blockedUntil.get(feetR) > now)) this.targetBlockPos = feetR;
 
+                if (this.targetBlockPos != null) {
+                    EconomyMod.LOGGER.info("[MINING] {} РєРѕРїР°РµС‚ РїСЂРµРїСЏС‚СЃС‚РІРёРµ: {}", villager.getName().getString(), this.targetBlockPos.toShortString());
+                    targetStartTime = villager.level().getGameTime();
+                }
                 return this.targetBlockPos != null;
             }
         }
@@ -3964,13 +4869,7 @@ public class VillagerMiningGoal extends Goal {
     private boolean hasLineOfSightToBlock(BlockPos pos) {
         Vec3 eyePos = new Vec3(villager.getX(), villager.getY() + villager.getEyeHeight(), villager.getZ());
         Vec3 targetPos = new Vec3(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
-        ClipContext context = new ClipContext(
-                eyePos,
-                targetPos,
-                ClipContext.Block.COLLIDER,
-                ClipContext.Fluid.NONE,
-                villager
-        );
+        ClipContext context = new ClipContext(eyePos, targetPos, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, villager);
         BlockHitResult result = villager.level().clip(context);
         return result.getType() == HitResult.Type.MISS || result.getBlockPos().equals(pos);
     }
@@ -3982,9 +4881,7 @@ public class VillagerMiningGoal extends Goal {
                 state.is(Blocks.LADDER)) {
             return false;
         }
-        if (!state.getFluidState().isEmpty()) {
-            return true;
-        }
+        if (!state.getFluidState().isEmpty()) return true;
         return state.isSolid();
     }
 
@@ -4009,42 +4906,34 @@ public class VillagerMiningGoal extends Goal {
     }
 
     private boolean tryRequestBridge(BlockPos pos, VillagerAttachment att, boolean shouldLog, int n, String label) {
+        if (recentlyDestroyed.contains(pos)) return false;
         if (isCollidingWithVillager(pos)) return false;
         ItemStack block = BridgeBuilder.getPlaceableBlock(att);
         if (!block.isEmpty()) {
             this.targetBlockPos = pos.immutable();
             this.isBridging = true;
+            if (shouldLog) {
+                EconomyMod.LOGGER.info("[MINING] {} СЃС‚СЂРѕРёС‚ РјРѕСЃС‚ ({}) С€Р°Рі {}: {}", villager.getName().getString(), label, n, pos.toShortString());
+            }
             return true;
         }
         return false;
     }
 
+    @SuppressWarnings("unused")
     private boolean tryPlugBlock(BlockPos pos, VillagerAttachment att, boolean shouldLog, int n, String label) {
+        if (recentlyDestroyed.contains(pos)) return false;
         if (isCollidingWithVillager(pos)) return false;
-        ItemStack bridgeBlock = BridgeBuilder.getPlaceableBlock(att);
-        if (!bridgeBlock.isEmpty()) {
+        ItemStack block = BridgeBuilder.getPlaceableBlock(att);
+        if (!block.isEmpty()) {
             this.targetBlockPos = pos.immutable();
             this.isBridging = true;
-            if (shouldLog) com.economymod.EconomyMod.LOGGER.info("РњРђР™РќРРќР“: Р—Р°РєСѓРїРѕСЂРёРІР°РµРј Р¶РёРґРєРѕСЃС‚СЊ ({}) РЅР° С€Р°РіРµ {}: {}", label, n, pos.toShortString());
+            if (shouldLog) {
+                EconomyMod.LOGGER.info("[MINING] {} Р·Р°РєСѓРїРѕСЂРёРІР°РµС‚ Р¶РёРґРєРѕСЃС‚СЊ ({}) С€Р°Рі {}: {}", villager.getName().getString(), label, n, pos.toShortString());
+            }
             return true;
         }
         return false;
-    }
-
-    private BlockPos scanExposedTunnelWalls(BlockPos floor, BlockPos head, BlockPos ceiling) {
-        BlockPos[] checkPositions = {
-                floor.west(), floor.east(),
-                head.west(), head.east(),
-                ceiling.west(), ceiling.east(), ceiling.above()
-        };
-
-        for (BlockPos pos : checkPositions) {
-            BlockState state = villager.level().getBlockState(pos);
-            if (state.is(Tags.Blocks.ORES) && isMinable(state)) {
-                return pos.immutable();
-            }
-        }
-        return null;
     }
 
     private BlockPos scanHorizontalBranch(int startX, int y, int z, int dirX, ItemStack pickaxe) {
@@ -4053,11 +4942,9 @@ public class VillagerMiningGoal extends Goal {
             BlockPos bFloor = new BlockPos(cx, y, z);
             BlockPos bHead = new BlockPos(cx, y + 1, z);
             BlockPos bCeiling = new BlockPos(cx, y + 2, z);
-
             BlockState stateFloor = villager.level().getBlockState(bFloor);
             BlockState stateHead = villager.level().getBlockState(bHead);
             BlockState stateClass = villager.level().getBlockState(bCeiling);
-
             if (!stateHead.isAir() || !stateClass.isAir()) {
                 if (!stateClass.isAir() && isMinable(stateClass) && isToolTiredCorrect(pickaxe, stateClass) && isSafeToMine(bCeiling, null)) {
                     return bCeiling.immutable();
@@ -4072,9 +4959,7 @@ public class VillagerMiningGoal extends Goal {
     }
 
     private boolean isMinable(BlockState state) {
-        if (state.getDestroySpeed(villager.level(), BlockPos.ZERO) < 0) {
-            return false;
-        }
+        if (state.getDestroySpeed(villager.level(), BlockPos.ZERO) < 0) return false;
         return !state.is(Blocks.BEDROCK) && !state.is(Blocks.CHEST) &&
                 !state.is(Blocks.WATER) && !state.is(Blocks.LAVA) &&
                 !state.is(Blocks.TORCH) && !state.is(Blocks.WALL_TORCH) &&
@@ -4083,15 +4968,11 @@ public class VillagerMiningGoal extends Goal {
     }
 
     private boolean isSafeToMine(BlockPos pos, VillagerAttachment att) {
-        if (att != null && !BridgeBuilder.getPlaceableBlock(att).isEmpty()) {
-            return true;
-        }
+        if (att != null && !BridgeBuilder.getPlaceableBlock(att).isEmpty()) return true;
         for (Direction dir : Direction.values()) {
             if (dir == Direction.DOWN) continue;
             BlockState adjState = villager.level().getBlockState(pos.relative(dir));
-            if (!adjState.getFluidState().isEmpty()) {
-                return false;
-            }
+            if (!adjState.getFluidState().isEmpty()) return false;
         }
         return true;
     }
@@ -4104,36 +4985,46 @@ public class VillagerMiningGoal extends Goal {
     }
 
     private BlockPos findSafeStandPos(BlockPos target) {
+        int currentY = villager.blockPosition().getY();
+        int maxAllowedY = (startY != -1) ? Math.min(startY + 3, currentY + 1) : currentY + 1;
         for (Direction dir : Direction.Plane.HORIZONTAL) {
             BlockPos p = target.relative(dir);
-            if (villager.level().getBlockState(p).isAir() &&
-                    villager.level().getBlockState(p.above()).isAir() &&
-                    villager.level().getBlockState(p.below()).isSolid()) {
+            if (p.getY() > maxAllowedY) continue;
+            BlockState state = villager.level().getBlockState(p);
+            BlockState stateAbove = villager.level().getBlockState(p.above());
+            BlockState stateBelow = villager.level().getBlockState(p.below());
+            if (state.isAir() && stateAbove.isAir() && stateBelow.isSolid()) {
                 return p.immutable();
             }
         }
         for (Direction dir : Direction.Plane.HORIZONTAL) {
             BlockPos p = target.below().relative(dir);
-            if (villager.level().getBlockState(p).isAir() &&
-                    villager.level().getBlockState(p.above()).isAir() &&
-                    villager.level().getBlockState(p.below()).isSolid()) {
+            if (p.getY() > maxAllowedY) continue;
+            BlockState state = villager.level().getBlockState(p);
+            BlockState stateAbove = villager.level().getBlockState(p.above());
+            BlockState stateBelow = villager.level().getBlockState(p.below());
+            if (state.isAir() && stateAbove.isAir() && stateBelow.isSolid()) {
                 return p.immutable();
             }
         }
         for (Direction dir : Direction.values()) {
             BlockPos p = target.relative(dir);
-            if (villager.level().getBlockState(p).isAir() && villager.level().getBlockState(p.below()).isSolid()) {
+            if (p.getY() > maxAllowedY) continue;
+            BlockState state = villager.level().getBlockState(p);
+            if (state.isAir() && villager.level().getBlockState(p.below()).isSolid()) {
                 return p.immutable();
             }
         }
-        return target.immutable();
+        return villager.blockPosition();
     }
 
     @Override
     public void start() {
         this.breakProgress = 0;
+        this.escapeAttempts = 0;
+        this.lastEscapeTarget = null;
+        this.lastPos = null;
         calculateBreakDuration();
-
         VillagerAttachment att = villager.getData(ModAttachments.VILLAGER.get());
         if (att != null) {
             ItemStack pickaxe = att.getActivePickaxe();
@@ -4141,42 +5032,111 @@ public class VillagerMiningGoal extends Goal {
                 villager.setItemInHand(InteractionHand.MAIN_HAND, pickaxe.copy());
             }
         }
+        if (targetBlockPos != null) {
+            EconomyMod.LOGGER.info("[MINING] {} РЅР°С‡Р°Р» РєРѕРїРєСѓ. Р¦РµР»СЊ: {}", villager.getName().getString(), targetBlockPos.toShortString());
+        }
+        targetStartTime = villager.level().getGameTime();
     }
 
     private void calculateBreakDuration() {
         if (targetBlockPos == null) return;
         BlockState state = villager.level().getBlockState(targetBlockPos);
 
-        if (state.isAir()) {
+        if (isFluid(state)) {
+            EconomyMod.LOGGER.debug("[MINING] {} С†РµР»РµРІРѕР№ Р±Р»РѕРє Р¶РёРґРєРѕСЃС‚СЊ, СЃР±СЂРѕСЃ С†РµР»Рё", villager.getName().getString());
+            recentlyDestroyed.add(targetBlockPos);
+            this.targetBlockPos = null;
+            this.maxBreakTicks = 1;
+            return;
+        }
+
+        if (isBridging && state.isAir()) {
+            EconomyMod.LOGGER.debug("[MINING] {} СЃС‚СЂРѕРёС‚РµР»СЊСЃС‚РІРѕ РјРѕСЃС‚Р°, РёРіРЅРѕСЂРёСЂСѓРµРј РІРѕР·РґСѓС…", villager.getName().getString());
             this.maxBreakTicks = 10;
+            return;
+        }
+
+        if (state.isAir()) {
+            EconomyMod.LOGGER.debug("[MINING] {} С†РµР»РµРІРѕР№ Р±Р»РѕРє СЃС‚Р°Р» РІРѕР·РґСѓС…РѕРј, СЃР±СЂРѕСЃ С†РµР»Рё", villager.getName().getString());
+            recentlyDestroyed.add(targetBlockPos);
+            this.targetBlockPos = null;
+            this.maxBreakTicks = 1;
             return;
         }
 
         VillagerAttachment att = villager.getData(ModAttachments.VILLAGER.get());
         double hardness = state.getDestroySpeed(villager.level(), targetBlockPos);
         double toolSpeed = 1.0;
-
         if (att != null) {
             ItemStack pickaxe = att.getActivePickaxe();
             if (!pickaxe.isEmpty()) {
                 toolSpeed = pickaxe.getDestroySpeed(state);
             }
         }
-
         this.maxBreakTicks = (int) Math.max(5, (hardness * 30.0) / toolSpeed);
     }
 
     @Override
     public void tick() {
-        if (targetBlockPos == null) return;
+        if (targetBlockPos == null) {
+            if (villager.level().getGameTime() - lastNoTargetLog > 100) {
+                EconomyMod.LOGGER.info("[MINING] {} РЅРµС‚ С†РµР»Рё, СЃС‚РѕРёС‚ РЅР° РјРµСЃС‚Рµ", villager.getName().getString());
+                lastNoTargetLog = villager.level().getGameTime();
+            }
+            return;
+        }
 
-        villager.getBrain().eraseMemory(net.minecraft.world.entity.ai.memory.MemoryModuleType.WALK_TARGET);
-        villager.getBrain().eraseMemory(net.minecraft.world.entity.ai.memory.MemoryModuleType.LOOK_TARGET);
-        villager.getBrain().eraseMemory(net.minecraft.world.entity.ai.memory.MemoryModuleType.INTERACTION_TARGET);
+        long nowGame = villager.level().getGameTime();
+        if (nowGame - targetStartTime > TARGET_TIMEOUT_TICKS && breakProgress == 0) {
+            EconomyMod.LOGGER.warn("[MINING] {} С‚Р°Р№РјР°СѓС‚ С†РµР»Рё {}, СЃР±СЂРѕСЃ", villager.getName().getString(), targetBlockPos.toShortString());
+            int fails = failCount.getOrDefault(targetBlockPos, 0) + 1;
+            failCount.put(targetBlockPos, fails);
+            if (fails >= MAX_FAILS) {
+                blockedUntil.put(targetBlockPos, nowGame + BLOCK_DURATION_TICKS);
+                EconomyMod.LOGGER.warn("[MINING] {} Р±Р»РѕРєРёСЂСѓРµРј С†РµР»СЊ {} РЅР° {} С‚РёРєРѕРІ", villager.getName().getString(), targetBlockPos.toShortString(), BLOCK_DURATION_TICKS);
+            }
+            stop();
+            this.targetBlockPos = null;
+            this.activeVeinBlockPos = null;
+            return;
+        }
+
+        if (breakProgress == 0 && villager.getNavigation().isDone()) {
+            BlockPos currentPos = villager.blockPosition();
+            if (lastPos != null && lastPos.equals(currentPos)) {
+                if (villager.level().getGameTime() - lastMoveTick > STUCK_TIMEOUT_TICKS) {
+                    EconomyMod.LOGGER.warn("[MINING] {} Р·Р°СЃС‚СЂСЏР» РЅР° РјРµСЃС‚Рµ, СЃР±СЂРѕСЃ С†РµР»Рё {}", villager.getName().getString(), targetBlockPos);
+                    stop();
+                    this.targetBlockPos = null;
+                    this.activeVeinBlockPos = null;
+                    return;
+                }
+            } else {
+                lastPos = currentPos;
+                lastMoveTick = villager.level().getGameTime();
+            }
+        } else {
+            lastPos = null;
+        }
+
+        if (villager.level().getGameTime() % 100 == 0) {
+            EconomyMod.LOGGER.debug("[MINING] {} СЃРјРѕС‚СЂРёС‚ РЅР° {}, РїРѕР·РёС†РёСЏ {}, С†РµР»СЊ {}",
+                    villager.getName().getString(),
+                    villager.getLookControl().getWantedX() + ", " + villager.getLookControl().getWantedY() + ", " + villager.getLookControl().getWantedZ(),
+                    villager.blockPosition().toShortString(),
+                    targetBlockPos != null ? targetBlockPos.toShortString() : "null");
+        }
+
+        if (villager.getBrain() != null) {
+            villager.getBrain().eraseMemory(net.minecraft.world.entity.ai.memory.MemoryModuleType.WALK_TARGET);
+            villager.getBrain().eraseMemory(net.minecraft.world.entity.ai.memory.MemoryModuleType.LOOK_TARGET);
+            villager.getBrain().eraseMemory(net.minecraft.world.entity.ai.memory.MemoryModuleType.INTERACTION_TARGET);
+        }
 
         if (breakProgress > maxBreakTicks + 120) {
-            com.economymod.EconomyMod.LOGGER.warn("РњРђР™РќРРќР“ Р’РђРўР§Р”РћР“: Р–РёС‚РµР»СЊ {} Р·Р°СЃС‚СЂСЏР» РїСЂРё РєРѕРїРєРµ Р±Р»РѕРєР° РЅР° {}. РЎР±СЂРѕСЃ С†РµР»Рё.",
-                    villager.getName().getString(), targetBlockPos.toShortString());
+            EconomyMod.LOGGER.warn("[MINING] {} Р—РђРЎРўР РЇР›! РџСЂРѕРіСЂРµСЃСЃ {}, РјР°РєСЃ {}, С†РµР»РµРІРѕР№ Р±Р»РѕРє {}",
+                    villager.getName().getString(), breakProgress, maxBreakTicks,
+                    targetBlockPos != null ? targetBlockPos.toShortString() : "null");
             stop();
             this.targetBlockPos = null;
             this.activeVeinBlockPos = null;
@@ -4186,24 +5146,47 @@ public class VillagerMiningGoal extends Goal {
         VillagerAttachment att = villager.getData(ModAttachments.VILLAGER.get());
         BlockPos standPos = findSafeStandPos(targetBlockPos);
 
+        if (startY != -1 && standPos.getY() > startY + 5) {
+            EconomyMod.LOGGER.warn("[MINING] {} standPos РІС‹С€Рµ СЂР°Р·СЂРµС€С‘РЅРЅРѕРіРѕ ({} > {}), СЃР±СЂРѕСЃ С†РµР»Рё",
+                    villager.getName().getString(), standPos.getY(), startY + 5);
+            stop();
+            this.targetBlockPos = null;
+            return;
+        }
+
         BlockPos feetPos = villager.blockPosition();
-        if (feetPos.getY() < standPos.getY() && villager.onGround() && att != null) {
+        long now = villager.level().getGameTime();
+        if (feetPos.getY() < standPos.getY() - 2 && now - lastEscapeTick > 40 && att != null && targetBlockPos != null && targetBlockPos.getY() < feetPos.getY()) {
+            if (lastEscapeTarget != null && lastEscapeTarget.equals(targetBlockPos)) {
+                escapeAttempts++;
+                if (escapeAttempts >= 3) {
+                    EconomyMod.LOGGER.warn("[MINING] {} СЃР»РёС€РєРѕРј РјРЅРѕРіРѕ РїРѕРїС‹С‚РѕРє РІС‹Р±СЂР°С‚СЊСЃСЏ РёР· СЏРјС‹ РґР»СЏ С†РµР»Рё {}, СЃР±СЂРѕСЃ С†РµР»Рё", villager.getName().getString(), targetBlockPos.toShortString());
+                    stop();
+                    this.targetBlockPos = null;
+                    this.activeVeinBlockPos = null;
+                    escapeAttempts = 0;
+                    lastEscapeTarget = null;
+                    return;
+                }
+            } else {
+                escapeAttempts = 1;
+                lastEscapeTarget = targetBlockPos;
+            }
+
             ItemStack blockStack = BridgeBuilder.getPlaceableBlock(att);
             if (!blockStack.isEmpty()) {
                 BlockPos ceilingPos = feetPos.above(2);
                 if (villager.level().getBlockState(ceilingPos).isAir()) {
                     villager.getJumpControl().jump();
-
                     net.minecraft.world.level.block.Block b = net.minecraft.world.level.block.Block.byItem(blockStack.getItem());
                     villager.level().setBlockAndUpdate(feetPos, b.defaultBlockState());
                     blockStack.shrink(1);
-
                     villager.teleportTo(villager.getX(), feetPos.getY() + 1.0D, villager.getZ());
-
                     villager.level().playSound(null, feetPos, net.minecraft.sounds.SoundEvents.STONE_PLACE,
                             net.minecraft.sounds.SoundSource.BLOCKS, 1.0F, 1.0F);
-
-                    com.economymod.EconomyMod.LOGGER.info("РњРђР™РќРРќР“: Р–РёС‚РµР»СЊ {} РІС‹Р±СЂР°Р»СЃСЏ РёР· СЏРјС‹, РїРѕРґРјРѕСЃС‚РёРІ РїРѕРґ СЃРµР±СЏ Р±Р»РѕРє!", villager.getName().getString());
+                    lastEscapeTick = now;
+                    EconomyMod.LOGGER.info("[MINING] {} РІС‹Р±СЂР°Р»СЃСЏ РёР· СЏРјС‹ (РіР»СѓР±РёРЅР° {}), РїРѕРґРјРѕСЃС‚РёРІ Р±Р»РѕРє РїРѕРґ СЃРµР±СЏ (РїРѕРїС‹С‚РєР° {})",
+                            villager.getName().getString(), standPos.getY() - feetPos.getY(), escapeAttempts);
                     return;
                 }
             }
@@ -4215,12 +5198,10 @@ public class VillagerMiningGoal extends Goal {
         double dh = Math.sqrt(dx * dx + dz * dz);
         float yaw = (float)(Math.atan2(dz, dx) * 180.0D / Math.PI) - 90.0F;
         float pitch = (float)(-(Math.atan2(dy, dh) * 180.0D / Math.PI));
-
         villager.setYRot(yaw);
         villager.setYBodyRot(yaw);
         villager.setYHeadRot(yaw);
         villager.setXRot(pitch);
-
         villager.getLookControl().setLookAt(targetBlockPos.getX() + 0.5, targetBlockPos.getY() + 0.5, targetBlockPos.getZ() + 0.5);
 
         TorchPlacer.tryPlaceTorch(villager, att);
@@ -4235,13 +5216,20 @@ public class VillagerMiningGoal extends Goal {
                 if (breakProgress >= maxBreakTicks) {
                     ItemStack block = BridgeBuilder.getPlaceableBlock(att);
                     BridgeBuilder.performPlaceBlock(villager.level(), targetBlockPos, block);
+                    EconomyMod.LOGGER.info("[MINING] {} Р·Р°РІРµСЂС€РёР» РїРѕСЃС‚СЂРѕР№РєСѓ РјРѕСЃС‚Р°/Р·Р°С‚С‹С‡РєСѓ РІ {}", villager.getName().getString(), targetBlockPos.toShortString());
                     this.targetBlockPos = null;
                     this.isBridging = false;
                     breakProgress = 0;
+                    escapeAttempts = 0;
+                    lastEscapeTarget = null;
                 }
                 return;
             } else {
                 if (villager.level().getBlockState(targetBlockPos).isAir()) {
+                    if (villager.level().getGameTime() % 100 == 0) {
+                        EconomyMod.LOGGER.debug("[MINING] {} С†РµР»РµРІРѕР№ Р±Р»РѕРє РёСЃС‡РµР·, СЃР±СЂРѕСЃ", villager.getName().getString());
+                    }
+                    recentlyDestroyed.add(targetBlockPos);
                     this.targetBlockPos = null;
                     this.breakProgress = 0;
                     return;
@@ -4249,12 +5237,10 @@ public class VillagerMiningGoal extends Goal {
             }
 
             if (breakProgress % 3 == 0) villager.swing(InteractionHand.MAIN_HAND);
-
             if (villager.level() instanceof ServerLevel sl) {
                 int stage = (int) (((double)breakProgress / maxBreakTicks) * 10);
                 sl.destroyBlockProgress(villager.getId(), targetBlockPos, stage);
             }
-
             if (breakProgress % 5 == 0) {
                 villager.level().playSound(null, targetBlockPos, net.minecraft.sounds.SoundEvents.STONE_HIT, net.minecraft.sounds.SoundSource.BLOCKS, 0.5f, 1.0f);
             }
@@ -4270,8 +5256,22 @@ public class VillagerMiningGoal extends Goal {
 
     private void performBreak() {
         if (villager.level() instanceof ServerLevel sl) {
-            damageTool();
+            BlockState state = sl.getBlockState(targetBlockPos);
+            if (state.isAir()) {
+                EconomyMod.LOGGER.debug("[MINING] {} Р±Р»РѕРє СѓР¶Рµ РІРѕР·РґСѓС…, СЃР±СЂРѕСЃ С†РµР»Рё", villager.getName().getString());
+                recentlyDestroyed.add(targetBlockPos);
+                this.targetBlockPos = null;
+                return;
+            }
 
+            recentlyDestroyed.add(targetBlockPos.immutable());
+            failCount.remove(targetBlockPos);
+            blockedUntil.remove(targetBlockPos);
+
+            EconomyMod.LOGGER.info("[MINING] {} СЂР°Р·СЂСѓС€РёР» Р±Р»РѕРє {} РІ {}",
+                    villager.getName().getString(), state.getBlock().getName().getString(), targetBlockPos.toShortString());
+
+            damageTool();
             sl.destroyBlock(targetBlockPos, true, villager);
             sl.destroyBlockProgress(villager.getId(), targetBlockPos, -1);
 
@@ -4284,10 +5284,16 @@ public class VillagerMiningGoal extends Goal {
             BlockState aboveState = sl.getBlockState(abovePos);
             if (isPathBlocked(aboveState) && isMinable(aboveState)) {
                 this.activeVeinBlockPos = abovePos.immutable();
+                EconomyMod.LOGGER.info("[MINING] {} РЅР°С€С‘Р» СЃР»РµРґСѓСЋС‰РёР№ Р±Р»РѕРє Р¶РёР»С‹ РЅР°Рґ: {}", villager.getName().getString(), abovePos.toShortString());
             } else {
                 this.activeVeinBlockPos = findAdjacentOre(targetBlockPos);
+                if (this.activeVeinBlockPos != null) {
+                    EconomyMod.LOGGER.info("[MINING] {} РЅР°С€С‘Р» СЃРјРµР¶РЅСѓСЋ СЂСѓРґСѓ: {}", villager.getName().getString(), this.activeVeinBlockPos.toShortString());
+                }
             }
 
+            escapeAttempts = 0;
+            lastEscapeTarget = null;
             this.targetBlockPos = null;
         }
     }
@@ -4299,14 +5305,12 @@ public class VillagerMiningGoal extends Goal {
             if (!pickaxe.isEmpty()) {
                 int damage = pickaxe.getDamageValue() + 1;
                 pickaxe.setDamageValue(damage);
-
                 if (damage >= pickaxe.getMaxDamage()) {
                     pickaxe.shrink(1);
                     villager.level().playSound(null, villager.blockPosition(),
                             net.minecraft.sounds.SoundEvents.ITEM_BREAK,
                             net.minecraft.sounds.SoundSource.NEUTRAL, 1.0F, 1.0F);
-                    com.economymod.EconomyMod.LOGGER.info("Р­РљРћРќРћРњРРљРђ: РЈ Р¶РёС‚РµР»СЏ {} СЃР»РѕРјР°Р»Р°СЃСЊ РєРёСЂРєР°!", villager.getName().getString());
-
+                    EconomyMod.LOGGER.info("[MINING] {} СЃР»РѕРјР°Р» РєРёСЂРєСѓ!", villager.getName().getString());
                     this.activeVeinBlockPos = null;
                     villager.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
                 }
@@ -4317,19 +5321,8 @@ public class VillagerMiningGoal extends Goal {
     private BlockPos findAdjacentOre(BlockPos pos) {
         for (Direction dir : Direction.values()) {
             BlockPos adj = pos.relative(dir);
-            BlockState state = villager.level().getBlockState(adj);
-
-            if (state.is(Tags.Blocks.ORES)) {
-                VillagerAttachment att = villager.getData(ModAttachments.VILLAGER.get());
-                if (att != null && att.getPersonalChestPos() != null) {
-                    BlockPos startPos = att.getPersonalChestPos().offset(0, 0, 1);
-                    int relativeZ = adj.getZ() - startPos.getZ();
-
-                    int floorY = (relativeZ < 3) ? (startPos.getY() - 1) : (startPos.getY() - ((relativeZ - 3) / 2) - 1);
-                    if (Math.abs(adj.getX() - startPos.getX()) <= 4) {
-                        return adj.immutable();
-                    }
-                }
+            if (villager.level().getBlockState(adj).is(Tags.Blocks.ORES)) {
+                return adj.immutable();
             }
         }
         return null;
@@ -4340,28 +5333,50 @@ public class VillagerMiningGoal extends Goal {
         if (targetBlockPos != null && villager.level() instanceof ServerLevel sl) {
             sl.destroyBlockProgress(villager.getId(), targetBlockPos, -1);
         }
+        if (targetBlockPos != null) {
+            recentlyDestroyed.add(targetBlockPos);
+        }
         this.targetBlockPos = null;
         this.breakProgress = 0;
         this.isBridging = false;
-
+        this.activeVeinBlockPos = null;
+        this.escapeAttempts = 0;
+        this.lastEscapeTarget = null;
+        this.lastPos = null;
         villager.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+        EconomyMod.LOGGER.info("[MINING] {} РѕСЃС‚Р°РЅРѕРІРёР» РєРѕРїРєСѓ (С†РµР»СЊ СЃР±СЂРѕС€РµРЅР°)", villager.getName().getString());
     }
 
     @Override
     public boolean canContinueToUse() {
         if (villager.level().isNight()) return false;
-
         if (villager.isSleeping()) return false;
-
         VillagerAttachment att = villager.getData(ModAttachments.VILLAGER.get());
-        if (att == null || att.getActivePickaxe().isEmpty()) return false;
-
-        if (villager.getLastHurtByMob() != null && villager.level().getGameTime() - villager.getLastHurtByMobTimestamp() < 120) {
+        if (att == null || att.getActivePickaxe().isEmpty()) {
+            if (targetBlockPos != null && villager.level() instanceof ServerLevel sl) {
+                sl.destroyBlockProgress(villager.getId(), targetBlockPos, -1);
+            }
             return false;
         }
-
-        if (isEnemyNearby()) return false;
-
+        if (villager.getLastHurtByMob() != null && villager.level().getGameTime() - villager.getLastHurtByMobTimestamp() < 120) {
+            if (targetBlockPos != null && villager.level() instanceof ServerLevel sl) {
+                sl.destroyBlockProgress(villager.getId(), targetBlockPos, -1);
+            }
+            return false;
+        }
+        if (isEnemyNearby()) {
+            if (targetBlockPos != null && villager.level() instanceof ServerLevel sl) {
+                sl.destroyBlockProgress(villager.getId(), targetBlockPos, -1);
+            }
+            return false;
+        }
+        if (att.getPersonalChestPos() == null && targetBlockPos != null && currentStep > 0) {
+            if (villager.level() instanceof ServerLevel sl) {
+                sl.destroyBlockProgress(villager.getId(), targetBlockPos, -1);
+            }
+            this.targetBlockPos = null;
+            return false;
+        }
         return targetBlockPos != null && (isMinable(villager.level().getBlockState(targetBlockPos)) || villager.level().getBlockState(targetBlockPos).isAir());
     }
 }
@@ -4892,6 +5907,198 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
 
 
 ================================================================================
+[FILE]: \src\main\java\com\economymod\entity\TestCreatureEntity.java
+================================================================================
+package com.economymod.entity;
+
+import com.economymod.neural.NeuralNetwork;
+import com.economymod.neural.NeuralConfig;
+import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.ai.goal.Goal;
+import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
+import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.LightLayer;
+
+import java.util.EnumSet;
+
+public class TestCreatureEntity extends Mob {
+
+    private NeuralNetwork neuralNetwork;
+    private int wanderCooldown = 0;
+    private int hunger = 50;
+    private int fatigue = 50;
+    private int socialCooldown = 0;
+    private int lastMoveTick = 0;
+    private BlockPos lastPos = null;
+
+    public TestCreatureEntity(EntityType<? extends Mob> type, Level level) {
+        super(type, level);
+        if (!level.isClientSide) {
+            this.neuralNetwork = new NeuralNetwork(null);
+        }
+    }
+
+    public static AttributeSupplier.Builder createAttributes() {
+        return Mob.createMobAttributes()
+                .add(Attributes.MAX_HEALTH, 20.0D)
+                .add(Attributes.MOVEMENT_SPEED, 0.25D);
+    }
+
+    @Override
+    protected void registerGoals() {
+        this.goalSelector.addGoal(1, new NeuralWanderGoal());
+        this.goalSelector.addGoal(2, new LookAtPlayerGoal(this, Player.class, 8.0F));
+        this.goalSelector.addGoal(3, new RandomLookAroundGoal(this));
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (!level().isClientSide && neuralNetwork != null && NeuralConfig.ENABLED) {
+            updateSensors();
+            neuralNetwork.tick();
+            applyNeuralOutput();
+        }
+    }
+
+    private void updateSensors() {
+        if (neuralNetwork == null) return;
+
+        // Р“РѕР»РѕРґ
+        neuralNetwork.stimulateSensor(NeuralNetwork.SENSOR_HUNGER, hunger / 100.0f);
+        // РЈСЃС‚Р°Р»РѕСЃС‚СЊ
+        neuralNetwork.stimulateSensor(NeuralNetwork.SENSOR_FATIGUE, fatigue / 100.0f);
+        // Р—РґРѕСЂРѕРІСЊРµ
+        neuralNetwork.stimulateSensor(NeuralNetwork.SENSOR_HEALTH, 1.0f - (getHealth() / getMaxHealth()));
+        // РЎРѕС†РёР°Р»РёР·Р°С†РёСЏ
+        boolean hasNearby = level().getEntitiesOfClass(TestCreatureEntity.class, getBoundingBox().inflate(8), e -> e != this).size() > 0;
+        neuralNetwork.stimulateSensor(NeuralNetwork.SENSOR_SOCIAL, hasNearby ? 0.7f : 0.0f);
+        // Р’СЂР°РіРё
+        boolean hasHostile = !level().getEntitiesOfClass(net.minecraft.world.entity.monster.Monster.class, getBoundingBox().inflate(16)).isEmpty();
+        neuralNetwork.stimulateSensor(NeuralNetwork.SENSOR_HOSTILE, hasHostile ? 1.0f : 0.0f);
+        // РљРѕРјС„РѕСЂС‚ (СЃРІРµС‚)
+        int light = level().getBrightness(LightLayer.BLOCK, blockPosition());
+        neuralNetwork.stimulateSensor(NeuralNetwork.SENSOR_COMFORT, light / 15.0f);
+        // Р›СЋР±РѕРїС‹С‚СЃС‚РІРѕ (РµСЃР»Рё РґРІРёРіР°Р»СЃСЏ)
+        BlockPos currentPos = blockPosition();
+        if (lastPos != null && !lastPos.equals(currentPos)) {
+            neuralNetwork.stimulateSensor(NeuralNetwork.SENSOR_CURIOSITY, 0.5f);
+            lastMoveTick = tickCount;
+        } else if (tickCount - lastMoveTick < 100) {
+            neuralNetwork.stimulateSensor(NeuralNetwork.SENSOR_CURIOSITY, 0.2f);
+        } else {
+            neuralNetwork.stimulateSensor(NeuralNetwork.SENSOR_CURIOSITY, 0.0f);
+        }
+        lastPos = currentPos;
+    }
+
+    private void applyNeuralOutput() {
+        if (neuralNetwork == null) return;
+
+        float eat = neuralNetwork.getOutputActivation(NeuralNetwork.OUTPUT_EAT);
+        float sleep = neuralNetwork.getOutputActivation(NeuralNetwork.OUTPUT_SLEEP);
+        float run = neuralNetwork.getOutputActivation(NeuralNetwork.OUTPUT_RUN_AWAY);
+        float explore = neuralNetwork.getOutputActivation(NeuralNetwork.OUTPUT_EXPLORE);
+        float socialize = neuralNetwork.getOutputActivation(NeuralNetwork.OUTPUT_SOCIALIZE);
+
+        // Р•РґР°
+        if (eat > 0.7f && hunger > 0) {
+            hunger = Math.max(0, hunger - 2);
+            setHealth(Math.min(getMaxHealth(), getHealth() + 1.0f));
+        }
+
+        // РЎРѕРЅ (РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёРµ СѓСЃС‚Р°Р»РѕСЃС‚Рё)
+        if (sleep > 0.7f) {
+            fatigue = Math.max(0, fatigue - 2);
+        }
+
+        // РЎРѕС†РёР°Р»РёР·Р°С†РёСЏ
+        if (socialize > 0.7f && socialCooldown == 0) {
+            socialCooldown = 100;
+            // РџРѕРёСЃРє РґСЂСѓРіРѕРіРѕ СЃСѓС‰РµСЃС‚РІР° РґР»СЏ РїРѕРґС…РѕРґР°
+            var nearby = level().getEntitiesOfClass(TestCreatureEntity.class, getBoundingBox().inflate(10), e -> e != this);
+            if (!nearby.isEmpty()) {
+                navigation.moveTo(nearby.get(0), 0.8);
+            }
+        }
+        if (socialCooldown > 0) socialCooldown--;
+
+        // РЈСЃС‚Р°Р»РѕСЃС‚СЊ СЂР°СЃС‚С‘С‚
+        if (tickCount % 20 == 0 && navigation.isInProgress()) {
+            fatigue = Math.min(100, fatigue + 1);
+        }
+
+        // Р“РѕР»РѕРґ СЂР°СЃС‚С‘С‚
+        if (tickCount % 60 == 0) {
+            hunger = Math.min(100, hunger + 1);
+        }
+    }
+
+    public NeuralNetwork getNeuralNetwork() { return neuralNetwork; }
+
+    @Override
+    public void addAdditionalSaveData(CompoundTag tag) {
+        super.addAdditionalSaveData(tag);
+        tag.putInt("Hunger", hunger);
+        tag.putInt("Fatigue", fatigue);
+        if (neuralNetwork != null) {
+            tag.put("NeuralNetwork", neuralNetwork.save());
+        }
+    }
+
+    @Override
+    public void readAdditionalSaveData(CompoundTag tag) {
+        super.readAdditionalSaveData(tag);
+        hunger = tag.getInt("Hunger");
+        fatigue = tag.getInt("Fatigue");
+        if (neuralNetwork != null && tag.contains("NeuralNetwork")) {
+            neuralNetwork.load(tag.getCompound("NeuralNetwork"));
+        }
+    }
+
+    class NeuralWanderGoal extends Goal {
+        public NeuralWanderGoal() {
+            this.setFlags(EnumSet.of(Goal.Flag.MOVE));
+        }
+
+        @Override
+        public boolean canUse() {
+            if (neuralNetwork == null) return false;
+            if (wanderCooldown > 0) {
+                wanderCooldown--;
+                return false;
+            }
+            float explore = neuralNetwork.getOutputActivation(NeuralNetwork.OUTPUT_EXPLORE);
+            float run = neuralNetwork.getOutputActivation(NeuralNetwork.OUTPUT_RUN_AWAY);
+            return explore > 0.5f || run > 0.6f;
+        }
+
+        @Override
+        public void start() {
+            BlockPos pos = TestCreatureEntity.this.blockPosition();
+            float run = neuralNetwork.getOutputActivation(NeuralNetwork.OUTPUT_RUN_AWAY);
+            double speed = (run > 0.6f) ? 1.2f : 0.6f;
+            BlockPos target = pos.offset(random.nextInt(15) - 7, 0, random.nextInt(15) - 7);
+            navigation.moveTo(target.getX(), target.getY(), target.getZ(), speed);
+            wanderCooldown = 60;
+        }
+
+        @Override
+        public boolean canContinueToUse() {
+            return !navigation.isDone();
+        }
+    }
+}
+
+
+================================================================================
 [FILE]: \src\main\java\com\economymod\entity\VillageGuardEntity.java
 ================================================================================
 package com.economymod.entity;
@@ -4899,18 +6106,18 @@ package com.economymod.entity;
 import com.economymod.entity.ai.VillageGuardCombatGoal;
 import com.economymod.registry.ModAttachments;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.DifficultyInstance;
 import net.minecraft.world.SimpleContainer;
-import net.minecraft.world.entity.AgeableMob;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.*;
 import net.minecraft.world.entity.ai.goal.target.HurtByTargetGoal;
+import net.minecraft.world.entity.ai.goal.target.NearestAttackableTargetGoal;
+import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.item.ShieldItem;
 import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
 
@@ -4919,30 +6126,47 @@ public class VillageGuardEntity extends Villager {
     public VillageGuardEntity(EntityType<? extends Villager> type, Level level) {
         super(type, level);
         this.setCanPickUpLoot(true);
+
+        for (EquipmentSlot slot : EquipmentSlot.values()) {
+            this.setDropChance(slot, 1.0F);
+        }
     }
 
     @Override
     protected void registerGoals() {
-        this.goalSelector.addGoal(1, new FloatGoal(this));
-        this.goalSelector.addGoal(1, new AvoidEntityGoal<>(this, net.minecraft.world.entity.monster.Creeper.class, 6.0F, 1.0D, 1.2D));
-        this.goalSelector.addGoal(2, new OpenDoorGoal(this, true));
+        // Р’Р°РЅРёР»СЊРЅС‹Рµ С†РµР»Рё СѓРґР°Р»СЏРµРј, С‡С‚РѕР±С‹ РЅРµ РјРµС€Р°Р»Рё
+        this.goalSelector.getAvailableGoals().clear();
+        this.targetSelector.getAvailableGoals().clear();
+
+        // Р¦РµР»Рё РїРѕРІРµРґРµРЅРёСЏ (РґРІРёР¶РµРЅРёРµ)
+        this.goalSelector.addGoal(0, new FloatGoal(this));
+        this.goalSelector.addGoal(1, new AvoidEntityGoal<>(this, net.minecraft.world.entity.monster.Creeper.class, 8.0F, 1.2D, 1.5D));
+        this.goalSelector.addGoal(2, new MeleeAttackGoal(this, 1.2D, true)); // Р”РѕР±Р°РІР»РµРЅР° Р±Р°Р·РѕРІР°СЏ Р°С‚Р°РєР°
         this.goalSelector.addGoal(3, new VillageGuardCombatGoal(this));
-        this.goalSelector.addGoal(4, new WaterAvoidingRandomStrollGoal(this, 0.6D));
-        this.goalSelector.addGoal(5, new LookAtPlayerGoal(this, Villager.class, 6.0F));
+        this.goalSelector.addGoal(4, new WaterAvoidingRandomStrollGoal(this, 0.8D));
+        this.goalSelector.addGoal(5, new LookAtPlayerGoal(this, Villager.class, 8.0F));
         this.goalSelector.addGoal(6, new RandomLookAroundGoal(this));
 
-        this.targetSelector.addGoal(1, new HurtByTargetGoal(this));
+        // Р¦РµР»Рё РґР»СЏ РІС‹Р±РѕСЂР° С†РµР»Рё (Р°С‚Р°РєР°)
+        // Р’Р°Р¶РЅРѕ: checkIfCanUse = true, checkIfCanSee = true
+        this.targetSelector.addGoal(1, new NearestAttackableTargetGoal<>(this, Monster.class, 10, true, true, (living) -> {
+            return !(living instanceof Villager); // РЅРµ Р°С‚Р°РєСѓРµРј Р¶РёС‚РµР»РµР№
+        }));
+        this.targetSelector.addGoal(2, new HurtByTargetGoal(this).setAlertOthers());
     }
 
     public static AttributeSupplier.Builder createAttributes() {
         return Villager.createAttributes()
-                .add(Attributes.MAX_HEALTH, 20.0D)
-                .add(Attributes.MOVEMENT_SPEED, 0.28D)
-                .add(Attributes.ATTACK_DAMAGE, 3.0D)
-                .add(Attributes.FOLLOW_RANGE, 32.0D);
+                .add(Attributes.MAX_HEALTH, 24.0D)
+                .add(Attributes.MOVEMENT_SPEED, 0.32D)
+                .add(Attributes.ATTACK_DAMAGE, 5.0D)
+                .add(Attributes.ARMOR, 8.0D)
+                .add(Attributes.ARMOR_TOUGHNESS, 2.0D)
+                .add(Attributes.FOLLOW_RANGE, 32.0D)
+                .add(Attributes.ATTACK_SPEED, 1.0D)
+                .add(Attributes.KNOCKBACK_RESISTANCE, 0.5D);
     }
 
-    // Р—Р°С‰РёС‚Р° СЂСѓРє РѕС‚ РІР°РЅРёР»СЊРЅРѕРіРѕ РР AbstractVillager (Р’СЂРµРјРµРЅРЅРѕР№ С‰РёС‚)
     @Override
     public void aiStep() {
         if (this.level().isClientSide()) {
@@ -4950,36 +6174,33 @@ public class VillageGuardEntity extends Villager {
             return;
         }
 
-        // 1. Р—Р°РїРѕРјРёРЅР°РµРј, С‡С‚Рѕ Р»РµР¶Р°Р»Рѕ РІ СЂСѓРєР°С… РІРѕРёРЅР° Р”Рћ РІС‹РїРѕР»РЅРµРЅРёСЏ РІР°РЅРёР»СЊРЅРѕРіРѕ С‚РёРєР°
         ItemStack mainhandBefore = this.getItemBySlot(EquipmentSlot.MAINHAND).copy();
         ItemStack offhandBefore = this.getItemBySlot(EquipmentSlot.OFFHAND).copy();
-
-        // 2. Р—Р°РїСѓСЃРєР°РµРј РІР°РЅРёР»СЊРЅС‹Р№ С‚РёРє (РѕРЅ РїСЂРёРЅСѓРґРёС‚РµР»СЊРЅРѕ РѕС‡РёСЃС‚РёС‚ СЂСѓРєРё Рё РїРѕР»РѕР¶РёС‚ РѕСЂСѓР¶РёРµ РІ СЃРєСЂС‹С‚С‹Р№ РєР°СЂРјР°РЅ)
         super.aiStep();
-
-        // 3. Р’РѕР·РІСЂР°С‰Р°РµРј РѕСЂСѓР¶РёРµ Рё С‰РёС‚ РѕР±СЂР°С‚РЅРѕ РІ СЂСѓРєРё РІРѕРёРЅСѓ, РµСЃР»Рё РІР°РЅРёР»СЊРЅС‹Р№ РєРѕРґ РёС… РѕС‚РѕР±СЂР°Р»!
         if (this.getItemBySlot(EquipmentSlot.MAINHAND).isEmpty() && !mainhandBefore.isEmpty()) {
             this.setItemSlot(EquipmentSlot.MAINHAND, mainhandBefore);
-            this.removeVanillaItem(mainhandBefore); // РРЎРџР РђР’Р›Р•РќРћ: СЃС‚РёСЂР°РµРј РґСѓР±Р»РёРєР°С‚ С‡РµСЂРµР· РЅР°С€ Р±РµР·РѕРїР°СЃРЅС‹Р№ РјРµС‚РѕРґ
+            this.removeVanillaItem(mainhandBefore);
         }
         if (this.getItemBySlot(EquipmentSlot.OFFHAND).isEmpty() && !offhandBefore.isEmpty()) {
             this.setItemSlot(EquipmentSlot.OFFHAND, offhandBefore);
-            this.removeVanillaItem(offhandBefore); // РРЎРџР РђР’Р›Р•РќРћ: СЃС‚РёСЂР°РµРј РґСѓР±Р»РёРєР°С‚
+            this.removeVanillaItem(offhandBefore);
         }
 
-        // РџСЂРѕРІРµСЂСЏРµРј СЂСЋРєР·Р°Рє РЅР° Р»СѓС‡С€СѓСЋ СЌРєРёРїРёСЂРѕРІРєСѓ СЂР°Р· РІ 2 СЃРµРєСѓРЅРґС‹
-        if (this.level().getGameTime() % 40 == 0) {
+        if (this.level().getGameTime() % 5 == 0) {
             this.autoEquipFromBackpack();
+        }
+
+        var att = this.getData(ModAttachments.VILLAGER.get());
+        if (att != null && att.getHunger() > 18.0 && this.tickCount % 20 == 0 && this.getHealth() < this.getMaxHealth()) {
+            this.heal(1.0f);
         }
     }
 
-    // РРЎРџР РђР’Р›Р•РќРћ: Р‘РµР·РѕРїР°СЃРЅС‹Р№ РјРµС‚РѕРґ СѓРґР°Р»РµРЅРёСЏ РїСЂРµРґРјРµС‚Р° РёР· РІР°РЅРёР»СЊРЅРѕРіРѕ РёРЅРІРµРЅС‚Р°СЂСЏ РїРѕ РµРіРѕ С‚РёРїСѓ
     private void removeVanillaItem(ItemStack stack) {
         SimpleContainer vanillaInv = this.getInventory();
         for (int i = 0; i < vanillaInv.getContainerSize(); i++) {
             ItemStack s = vanillaInv.getItem(i);
             if (ItemStack.isSameItemSameComponents(s, stack)) {
-                // Р—Р°Р±РёСЂР°РµРј РїСЂРµРґРјРµС‚ РїРѕ РёРЅРґРµРєСЃСѓ СЃР»РѕС‚Р° Рё РІ РїСЂР°РІРёР»СЊРЅРѕРј РєРѕР»РёС‡РµСЃС‚РІРµ
                 vanillaInv.removeItem(i, stack.getCount());
                 break;
             }
@@ -4990,29 +6211,17 @@ public class VillageGuardEntity extends Villager {
         var att = this.getData(ModAttachments.VILLAGER.get());
         if (att == null) return;
         SimpleContainer inv = att.getInventory();
-
         for (int i = 0; i < inv.getContainerSize(); i++) {
             ItemStack stack = inv.getItem(i);
             if (stack.isEmpty()) continue;
-
             EquipmentSlot slot = this.getEquipmentSlotForItem(stack);
-
-            if (isWeapon(stack)) {
-                slot = EquipmentSlot.MAINHAND;
-            }
-
+            if (isWeapon(stack)) slot = EquipmentSlot.MAINHAND;
             if (slot != null) {
                 ItemStack currentEquip = this.getItemBySlot(slot);
-
                 if (currentEquip.isEmpty() || getEquipmentRating(stack) > getEquipmentRating(currentEquip)) {
                     this.setItemSlot(slot, stack.copy());
-
-                    if (!currentEquip.isEmpty()) {
-                        inv.setItem(i, currentEquip);
-                    } else {
-                        inv.setItem(i, ItemStack.EMPTY);
-                    }
-
+                    if (!currentEquip.isEmpty()) inv.setItem(i, currentEquip);
+                    else inv.setItem(i, ItemStack.EMPTY);
                     this.level().playSound(null, this.blockPosition(),
                             net.minecraft.sounds.SoundEvents.ARMOR_EQUIP_GENERIC.value(),
                             net.minecraft.sounds.SoundSource.NEUTRAL, 1.0F, 1.0F);
@@ -5029,7 +6238,6 @@ public class VillageGuardEntity extends Villager {
 
     private int getEquipmentRating(ItemStack stack) {
         net.minecraft.world.item.Item item = stack.getItem();
-
         if (item instanceof net.minecraft.world.item.TieredItem tieredItem) {
             net.minecraft.world.item.Tier tier = tieredItem.getTier();
             if (tier == net.minecraft.world.item.Tiers.NETHERITE) return 50;
@@ -5039,15 +6247,8 @@ public class VillageGuardEntity extends Villager {
             if (tier == net.minecraft.world.item.Tiers.GOLD) return 20;
             if (tier == net.minecraft.world.item.Tiers.WOOD) return 10;
         }
-
-        if (item instanceof net.minecraft.world.item.ArmorItem armorItem) {
-            return armorItem.getDefense();
-        }
-
-        if (item instanceof net.minecraft.world.item.ShieldItem) {
-            return 15;
-        }
-
+        if (item instanceof net.minecraft.world.item.ArmorItem armorItem) return armorItem.getDefense();
+        if (item instanceof net.minecraft.world.item.ShieldItem) return 15;
         return 0;
     }
 
@@ -5060,9 +6261,9 @@ public class VillageGuardEntity extends Villager {
     public ItemStack getUseItem() {
         if (this.isUsingItem()) {
             ItemStack offhand = this.getOffhandItem();
-            if (offhand.getItem() instanceof ShieldItem) return offhand;
+            if (offhand.getItem() instanceof net.minecraft.world.item.ShieldItem) return offhand;
             ItemStack mainhand = this.getMainHandItem();
-            if (mainhand.getItem() instanceof ShieldItem) return mainhand;
+            if (mainhand.getItem() instanceof net.minecraft.world.item.ShieldItem) return mainhand;
         }
         return super.getUseItem();
     }
@@ -5071,7 +6272,7 @@ public class VillageGuardEntity extends Villager {
     public net.minecraft.world.InteractionHand getUsedItemHand() {
         if (this.isUsingItem()) {
             ItemStack offhand = this.getOffhandItem();
-            if (offhand.getItem() instanceof ShieldItem) {
+            if (offhand.getItem() instanceof net.minecraft.world.item.ShieldItem) {
                 return net.minecraft.world.InteractionHand.OFF_HAND;
             }
         }
@@ -5079,10 +6280,11 @@ public class VillageGuardEntity extends Villager {
     }
 
     @Override
-    protected void populateDefaultEquipmentSlots(net.minecraft.util.RandomSource random, net.minecraft.world.DifficultyInstance difficulty) {
+    protected void populateDefaultEquipmentSlots(net.minecraft.util.RandomSource random, DifficultyInstance difficulty) {
         this.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.IRON_SWORD));
-        this.setItemSlot(EquipmentSlot.CHEST, new ItemStack(Items.CHAINMAIL_CHESTPLATE));
-
+        this.setItemSlot(EquipmentSlot.CHEST, new ItemStack(Items.IRON_CHESTPLATE));
+        this.setItemSlot(EquipmentSlot.LEGS, new ItemStack(Items.IRON_LEGGINGS));
+        this.setItemSlot(EquipmentSlot.FEET, new ItemStack(Items.IRON_BOOTS));
         if (random.nextFloat() < 0.5F) {
             this.setItemSlot(EquipmentSlot.OFFHAND, new ItemStack(Items.SHIELD));
         }
@@ -5095,9 +6297,231 @@ public class VillageGuardEntity extends Villager {
     }
 
     @Override
-    public boolean doHurtTarget(net.minecraft.world.entity.Entity entity) {
+    public boolean doHurtTarget(Entity entity) {
         if (entity instanceof Villager) return false;
         return super.doHurtTarget(entity);
+    }
+}
+
+
+================================================================================
+[FILE]: \src\main\java\com\economymod\event\GuardAutoAssigner.java
+================================================================================
+package com.economymod.event;
+
+import com.economymod.EconomyMod;
+import com.economymod.entity.VillageGuardEntity;
+import com.economymod.registry.ModAttachments;
+import com.economymod.registry.ModEntities;
+import com.economymod.registry.ModProfessions;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.npc.VillagerData;
+import net.minecraft.world.entity.npc.VillagerProfession;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.AABB;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.neoforge.event.tick.LevelTickEvent;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class GuardAutoAssigner {
+
+    private static int tickCounter = 0;
+    private static final int CHECK_INTERVAL = 200;
+
+    @SubscribeEvent
+    public static void onLevelTick(LevelTickEvent.Post event) {
+        if (event.getLevel().isClientSide()) return;
+        if (!(event.getLevel() instanceof ServerLevel level)) return;
+
+        tickCounter++;
+        if (tickCounter < CHECK_INTERVAL) return;
+        tickCounter = 0;
+
+        // РџРµСЂРµР±РёСЂР°РµРј РІСЃРµ Р±Р»РѕРєРё РІ Р·Р°РіСЂСѓР¶РµРЅРЅРѕР№ РѕР±Р»Р°СЃС‚Рё Р¶РёС‚РµР»РµР№ (РёРіСЂРѕРєРё + СЃРїР°РІРЅ)
+        // РџСЂРѕСЃС‚РѕР№ Рё РЅР°РґС‘Р¶РЅС‹Р№ СЃРїРѕСЃРѕР±: РїСЂРѕРІРµСЂРёС‚СЊ РІРѕРєСЂСѓРі РєР°Р¶РґРѕРіРѕ РёРіСЂРѕРєР°
+        if (level.players().isEmpty()) return;
+
+        for (var player : level.players()) {
+            BlockPos playerPos = player.blockPosition();
+            // РџСЂРѕРІРµСЂСЏРµРј РѕР±Р»Р°СЃС‚СЊ 50x50 РІРѕРєСЂСѓРі РєР°Р¶РґРѕРіРѕ РёРіСЂРѕРєР°
+            for (int dx = -25; dx <= 25; dx++) {
+                for (int dz = -25; dz <= 25; dz++) {
+                    for (int dy = -10; dy <= 10; dy++) {
+                        BlockPos pos = playerPos.offset(dx, dy, dz);
+                        if (!level.isLoaded(pos)) continue;
+                        if (level.getBlockState(pos).is(Blocks.TARGET)) {
+                            // РќР°С€Р»Рё РјРёС€РµРЅСЊ
+                            AABB searchBox = new AABB(pos).inflate(10);
+                            List<Villager> villagers = level.getEntitiesOfClass(Villager.class, searchBox,
+                                    v -> v.getVillagerData().getProfession() == VillagerProfession.NONE);
+
+                            for (Villager villager : villagers) {
+                                replaceWithGuard(villager, level, pos);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static void replaceWithGuard(Villager oldVillager, ServerLevel level, BlockPos targetPos) {
+        if (oldVillager instanceof VillageGuardEntity) return;
+
+        VillageGuardEntity guard = ModEntities.VILLAGE_GUARD.get().create(level);
+        if (guard == null) return;
+
+        // РљРѕРїРёСЂСѓРµРј РїРѕР·РёС†РёСЋ Рё РїРѕРІРѕСЂРѕС‚
+        guard.setPos(oldVillager.getX(), oldVillager.getY(), oldVillager.getZ());
+        guard.setYRot(oldVillager.getYRot());
+        guard.setXRot(oldVillager.getXRot());
+
+        // РљРѕРїРёСЂСѓРµРј РёРјСЏ
+        if (oldVillager.getCustomName() != null) {
+            guard.setCustomName(oldVillager.getCustomName());
+            guard.setCustomNameVisible(oldVillager.isCustomNameVisible());
+        }
+
+        // РљРѕРїРёСЂСѓРµРј РґР°РЅРЅС‹Рµ Р°С‚С‚Р°С‡РјРµРЅС‚Р°
+        var attachments = oldVillager.getData(ModAttachments.VILLAGER.get());
+        if (attachments != null) {
+            var newAtt = guard.getData(ModAttachments.VILLAGER.get());
+            if (newAtt != null) {
+                for (int i = 0; i < attachments.getInventory().getContainerSize(); i++) {
+                    newAtt.getInventory().setItem(i, attachments.getInventory().getItem(i).copy());
+                }
+                newAtt.setBalance(attachments.getBalance());
+                newAtt.setHunger(attachments.getHunger());
+                newAtt.setPersonalChestPos(attachments.getPersonalChestPos());
+                newAtt.setMiningStartY(attachments.getMiningStartY());
+                newAtt.setLootGenerated(attachments.wasLootGenerated());
+            }
+        }
+
+        // РќР°Р·РЅР°С‡Р°РµРј РїСЂРѕС„РµСЃСЃРёСЋ СЃС‚СЂР°Р¶Сѓ
+        guard.setVillagerData(new VillagerData(
+                guard.getVillagerData().getType(),
+                ModProfessions.GUARD.get(),
+                guard.getVillagerData().getLevel()
+        ));
+
+        // РЈРґР°Р»СЏРµРј СЃС‚Р°СЂРѕРіРѕ, СЃРїР°РІРЅРёРј РЅРѕРІРѕРіРѕ
+        oldVillager.discard();
+        level.addFreshEntity(guard);
+
+        EconomyMod.LOGGER.info("Р–РёС‚РµР»СЊ {} Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё СЃС‚Р°Р» СЃС‚СЂР°Р¶РµРј Сѓ РјРёС€РµРЅРё {}",
+                guard.getName().getString(), targetPos.toShortString());
+    }
+}
+
+
+================================================================================
+[FILE]: \src\main\java\com\economymod\event\GuardProfessionHandler.java
+================================================================================
+package com.economymod.event;
+
+// import com.economymod.EconomyMod;
+import com.economymod.entity.VillageGuardEntity;
+import com.economymod.registry.ModAttachments;
+import com.economymod.registry.ModEntities;
+import com.economymod.registry.ModProfessions;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.npc.VillagerData;
+import net.minecraft.world.entity.npc.VillagerProfession;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.AABB;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+
+import java.util.List;
+
+public class GuardProfessionHandler {
+
+    // РћР±СЂР°Р±РѕС‚С‡РёРє РєР»РёРєР° РїРѕ РјРёС€РµРЅРё (РЅРѕ С‚РµРїРµСЂСЊ РѕРЅ РІС‹Р·С‹РІР°РµС‚ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєСѓСЋ Р·Р°РјРµРЅСѓ)
+    @SubscribeEvent
+    public static void onRightClickTarget(PlayerInteractEvent.RightClickBlock event) {
+        // if (event.getLevel().isClientSide()) return;
+        // if (!event.getLevel().getBlockState(event.getPos()).is(Blocks.TARGET)) return;
+        //
+        // ServerLevel level = (ServerLevel) event.getLevel();
+        // BlockPos pos = event.getPos();
+        //
+        // // РС‰РµРј Р±РµР·СЂР°Р±РѕС‚РЅРѕРіРѕ Р¶РёС‚РµР»СЏ СЂСЏРґРѕРј
+        // AABB searchBox = new AABB(pos).inflate(10);
+        // List<Villager> villagers = level.getEntitiesOfClass(Villager.class, searchBox,
+        //         v -> v.getVillagerData().getProfession() == VillagerProfession.NONE);
+        //
+        // for (Villager villager : villagers) {
+        //     replaceWithGuard(villager, level);
+        // }
+    }
+
+    // РћСЃРЅРѕРІРЅРѕР№ РјРµС‚РѕРґ Р·Р°РјРµРЅС‹ Р¶РёС‚РµР»СЏ РЅР° СЃС‚СЂР°Р¶Р°
+    private static void replaceWithGuard(Villager oldVillager, ServerLevel level) {
+        // if (oldVillager instanceof VillageGuardEntity) return;
+        //
+        // VillageGuardEntity guard = ModEntities.VILLAGE_GUARD.get().create(level);
+        // if (guard == null) return;
+        //
+        // // РљРѕРїРёСЂСѓРµРј РїРѕР·РёС†РёСЋ Рё РїРѕРІРѕСЂРѕС‚
+        // guard.setPos(oldVillager.getX(), oldVillager.getY(), oldVillager.getZ());
+        // guard.setYRot(oldVillager.getYRot());
+        // guard.setXRot(oldVillager.getXRot());
+        //
+        // // РљРѕРїРёСЂСѓРµРј РёРјСЏ
+        // if (oldVillager.getCustomName() != null) {
+        //     guard.setCustomName(oldVillager.getCustomName());
+        //     guard.setCustomNameVisible(oldVillager.isCustomNameVisible());
+        // }
+        //
+        // // РљРѕРїРёСЂСѓРµРј РґР°РЅРЅС‹Рµ Р°С‚С‚Р°С‡РјРµРЅС‚Р°
+        // var attachments = oldVillager.getData(ModAttachments.VILLAGER.get());
+        // if (attachments != null) {
+        //     var newAtt = guard.getData(ModAttachments.VILLAGER.get());
+        //     if (newAtt != null) {
+        //         for (int i = 0; i < attachments.getInventory().getContainerSize(); i++) {
+        //             newAtt.getInventory().setItem(i, attachments.getInventory().getItem(i).copy());
+        //         }
+        //         newAtt.setBalance(attachments.getBalance());
+        //         newAtt.setHunger(attachments.getHunger());
+        //         newAtt.setPersonalChestPos(attachments.getPersonalChestPos());
+        //         newAtt.setMiningStartY(attachments.getMiningStartY());
+        //         newAtt.setLootGenerated(attachments.wasLootGenerated());
+        //     }
+        // }
+        //
+        // // Р”Р°С‘Рј РїСЂРѕС„РµСЃСЃРёСЋ СЃС‚СЂР°Р¶Сѓ
+        // guard.setVillagerData(new VillagerData(
+        //         guard.getVillagerData().getType(),
+        //         ModProfessions.GUARD.get(),
+        //         guard.getVillagerData().getLevel()
+        // ));
+        //
+        // // РЈРґР°Р»СЏРµРј СЃС‚Р°СЂРѕРіРѕ Рё СЃРїР°РІРЅРёРј РЅРѕРІРѕРіРѕ
+        // oldVillager.discard();
+        // level.addFreshEntity(guard);
+        //
+        // EconomyMod.LOGGER.info("Р–РёС‚РµР»СЊ {} СЃС‚Р°Р» СЃС‚СЂР°Р¶РµРј!",
+        //         guard.getName().getString());
+    }
+
+    // РџСЂРё Р·Р°РіСЂСѓР·РєРµ РјРёСЂР° Р·Р°РјРµРЅСЏРµРј РІСЃРµС… Р¶РёС‚РµР»РµР№ СЃ РїСЂРѕС„РµСЃСЃРёРµР№ GUARD РЅР° СЃС‚СЂР°Р¶РµР№
+    @SubscribeEvent
+    public static void onEntityJoin(EntityJoinLevelEvent event) {
+        // if (event.getLevel().isClientSide()) return;
+        // if (!(event.getEntity() instanceof Villager villager)) return;
+        // if (villager instanceof VillageGuardEntity) return;
+        //
+        // if (villager.getVillagerData().getProfession() == ModProfessions.GUARD.get()) {
+        //     replaceWithGuard(villager, (ServerLevel) event.getLevel());
+        // }
     }
 }
 
@@ -5149,6 +6573,7 @@ public class ServerEventHandler {
             villager.goalSelector.addGoal(4, new VillagerCraftingGoal(villager));
             villager.goalSelector.addGoal(4, new VillagerCompostingGoal(villager));
             villager.goalSelector.addGoal(5, new VillagerP2PTradeGoal(villager));
+            villager.goalSelector.addGoal(2, new VillagerFarmingGoal(villager));
 
             EconomyMod.LOGGER.info("Р­РљРћРќРћРњРРљРђ РР: Р’СЃРµ СЌРєРѕРЅРѕРјРёС‡РµСЃРєРёРµ С†РµР»Рё СѓСЃРїРµС€РЅРѕ РїСЂРѕРїРёСЃР°РЅС‹ РІ РјРѕР·Рі Р¶РёС‚РµР»СЏ [{}]!",
                     villager.getDisplayName().getString());
@@ -5236,15 +6661,21 @@ public class ServerEvents {
 package com.economymod.event;
 
 import com.economymod.attachment.VillagerAttachment;
+import com.economymod.entity.VillageGuardEntity;
 import com.economymod.gui.menu.EconomyTradeMenu;
 import com.economymod.registry.ModAttachments;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.MenuProvider;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.ShieldItem;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import org.jetbrains.annotations.Nullable;
@@ -5253,19 +6684,49 @@ public class VillagerInteractionHandler {
 
     @SubscribeEvent
     public static void onEntityInteract(PlayerInteractEvent.EntityInteract event) {
-        if (event.getTarget() instanceof Villager villager) {
-            // РРЎРџР РђР’Р›Р•РќРћ: РћС‚РјРµРЅСЏРµРј СЃРѕР±С‹С‚РёРµ РЅР° РљР›РР•РќРўР• Рё РЎР•Р Р’Р•Р Р•, С‡С‚РѕР±С‹ РЅРµ РјРѕСЂРіР°Р» РІР°РЅРёР»СЊРЅС‹Р№ GUI
-            event.setCanceled(true);
-            event.setCancellationResult(net.minecraft.world.InteractionResult.CONSUME); // РђРЅРёРјР°С†РёСЏ СЂСѓРєРё
+        Entity targetEntity = event.getTarget();
 
-            // РћС‚РєСЂС‹РІР°РµРј РєР°СЃС‚РѕРјРЅРѕРµ РјРµРЅСЋ С‚РѕР»СЊРєРѕ РЅР° СЃРµСЂРІРµСЂРµ
+        if (targetEntity instanceof Villager villager) {
+            Player interactingPlayer = event.getEntity();
+
+            // РџСЂРѕРІРµСЂСЏРµРј, РґРµСЂР¶РёС‚ Р»Рё РёРіСЂРѕРє С‰РёС‚ РІ РїСЂР°РІРѕР№ РёР»Рё Р»РµРІРѕР№ СЂСѓРєРµ
+            boolean hasShield = interactingPlayer.getMainHandItem().getItem() instanceof ShieldItem ||
+                    interactingPlayer.getOffhandItem().getItem() instanceof ShieldItem;
+
+            if (hasShield) {
+                // РРЎРџР РђР’Р›Р•РќРћ: РџРѕР»РЅРѕСЃС‚СЊСЋ СѓР±СЂР°Р»Рё РїСЂРѕРІРµСЂРєСѓ РЅР° Shift!
+                // РўРµРїРµСЂСЊ С‰РёС‚ Р’РЎР•Р“Р”Рђ РёРјРµРµС‚ РЅР°РёРІС‹СЃС€РёР№ РїСЂРёРѕСЂРёС‚РµС‚ РЅР°Рґ С‚РѕСЂРіРѕРІР»РµР№ РІ Р»СЋР±РѕРј СЃРѕСЃС‚РѕСЏРЅРёРё (Рё СЃС‚РѕСЏ, Рё РЅР° Shift).
+                // РљР»РёРє РїРѕ Р¶РёС‚РµР»СЋ Р±Р»РѕРєРёСЂСѓРµС‚СЃСЏ СЃ СЂРµР·СѓР»СЊС‚Р°С‚РѕРј PASS, Р·Р°СЃС‚Р°РІР»СЏСЏ С‰РёС‚ РјРіРЅРѕРІРµРЅРЅРѕ РїРѕРґРЅСЏС‚СЊСЃСЏ Рё РѕС‚СЂР°Р·РёС‚СЊ СѓРґР°СЂ.
+                event.setCanceled(true);
+                event.setCancellationResult(InteractionResult.PASS);
+                return;
+            }
+
+            // РџСЂРѕРІРµСЂРєР°: РµСЃР»Рё Р¶РёС‚РµР»СЊ РІ Р±РѕСЋ вЂ“ РЅРµ РѕС‚РєСЂС‹РІР°РµРј GUI
+            if (villager instanceof VillageGuardEntity guard) {
+                if (guard.getTarget() != null && guard.getTarget().isAlive()) {
+                    event.setCanceled(true);
+                    event.setCancellationResult(InteractionResult.CONSUME);
+                    return;
+                }
+            } else {
+                LivingEntity lastHurt = villager.getLastHurtByMob();
+                if (lastHurt != null && villager.tickCount - villager.getLastHurtByMobTimestamp() < 100) {
+                    event.setCanceled(true);
+                    event.setCancellationResult(InteractionResult.CONSUME);
+                    return;
+                }
+            }
+
+            // РћС‚РјРµРЅСЏРµРј СЃС‚Р°РЅРґР°СЂС‚РЅРѕРµ РІР·Р°РёРјРѕРґРµР№СЃС‚РІРёРµ Рё РѕС‚РєСЂС‹РІР°РµРј РєР°СЃС‚РѕРјРЅС‹Р№ GUI С‚РѕСЂРіРѕРІР»Рё
+            event.setCanceled(true);
+            event.setCancellationResult(InteractionResult.CONSUME);
             if (event.getEntity() instanceof ServerPlayer serverPlayer) {
                 serverPlayer.openMenu(new MenuProvider() {
                     @Override
                     public Component getDisplayName() {
                         return villager.getDisplayName();
                     }
-
                     @Nullable
                     @Override
                     public AbstractContainerMenu createMenu(int id, Inventory inv, Player player) {
@@ -5495,8 +6956,11 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
         }
     }
 
-    @Override public void removed(Player player) {
+    @Override
+    public void removed(Player player) {
         super.removed(player);
+
+        // Р’РѕР·РІСЂР°С‰Р°РµРј РїСЂРµРґРјРµС‚С‹ РёР· РєРѕСЂР·РёРЅС‹ РїСЂРѕРґР°Р¶Рё РёРіСЂРѕРєСѓ
         for (int i = 0; i < 9; i++) {
             ItemStack stack = sellContainer.getItem(i);
             if (!stack.isEmpty()) {
@@ -5504,7 +6968,28 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
                 sellContainer.setItem(i, ItemStack.EMPTY);
             }
         }
-        for (int i = 0; i < 9; i++) buyContainer.setItem(i, ItemStack.EMPTY);
+
+        // Р’РѕР·РІСЂР°С‰Р°РµРј РїСЂРµРґРјРµС‚С‹ РёР· РєРѕСЂР·РёРЅС‹ РїРѕРєСѓРїРєРё РІР»Р°РґРµР»СЊС†Сѓ (С‚РѕСЂРіРѕРІС†Сѓ)
+        for (int i = 0; i < 9; i++) {
+            ItemStack stack = buyContainer.getItem(i);
+            if (!stack.isEmpty() && ownerActor != null) {
+                // Р”РѕР±Р°РІР»СЏРµРј РїСЂРµРґРјРµС‚ РѕР±СЂР°С‚РЅРѕ РІР»Р°РґРµР»СЊС†Сѓ
+                ItemStack remainder = ownerActor.getInventory().addItem(stack.copy());
+                if (!remainder.isEmpty()) {
+                    // Р•СЃР»Рё РЅРµ РІР»РµР·Р»Рѕ РїРѕР»РЅРѕСЃС‚СЊСЋ, РґСЂРѕРїР°РµРј РЅР° Р·РµРјР»СЋ
+                    if (ownerActor.getPosition() != null && player.level() instanceof ServerLevel) {
+                        player.level().addFreshEntity(new net.minecraft.world.entity.item.ItemEntity(
+                                player.level(),
+                                ownerActor.getPosition().getX(),
+                                ownerActor.getPosition().getY(),
+                                ownerActor.getPosition().getZ(),
+                                remainder
+                        ));
+                    }
+                }
+                buyContainer.setItem(i, ItemStack.EMPTY);
+            }
+        }
     }
 
     @Override public ItemStack quickMoveStack(Player player, int index) {
@@ -6546,6 +8031,633 @@ public record ServerboundRequestInitialSyncPacket() implements CustomPacketPaylo
 
 
 ================================================================================
+[FILE]: \src\main\java\com\economymod\neural\NeuralCommand.java
+================================================================================
+package com.economymod.neural;
+
+import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.FloatArgumentType;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.phys.AABB;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.neoforge.event.RegisterCommandsEvent;
+
+public class NeuralCommand {
+    public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
+        dispatcher.register(Commands.literal("neural")
+                .requires(source -> source.hasPermission(2))
+                .then(Commands.literal("toggle")
+                        .executes(ctx -> {
+                            NeuralManager.toggle();
+                            ctx.getSource().sendSuccess(() -> Component.literal("Neural system " + (NeuralConfig.ENABLED ? "enabled" : "disabled")), true);
+                            return 1;
+                        })
+                )
+                .then(Commands.literal("status")
+                        .then(Commands.argument("radius", FloatArgumentType.floatArg(1, 32))
+                                .executes(ctx -> {
+                                    float radius = FloatArgumentType.getFloat(ctx, "radius");
+                                    ServerPlayer player = ctx.getSource().getPlayerOrException();
+                                    AABB box = new AABB(player.blockPosition()).inflate(radius);
+                                    for (Villager v : player.level().getEntitiesOfClass(Villager.class, box, e -> true)) {
+                                        String status = NeuralManager.getStatus(v);
+                                        player.sendSystemMessage(Component.literal(v.getName().getString() + ": " + status));
+                                    }
+                                    return 1;
+                                })
+                        )
+                        .executes(ctx -> {
+                            ServerPlayer player = ctx.getSource().getPlayerOrException();
+                            AABB box = new AABB(player.blockPosition()).inflate(10);
+                            Villager nearest = null;
+                            double minDist = 1000;
+                            for (Villager v : player.level().getEntitiesOfClass(Villager.class, box, e -> true)) {
+                                double d = player.distanceToSqr(v);
+                                if (d < minDist) {
+                                    minDist = d;
+                                    nearest = v;
+                                }
+                            }
+                            if (nearest != null) {
+                                String status = NeuralManager.getStatus(nearest);
+                                player.sendSystemMessage(Component.literal(nearest.getName().getString() + ": " + status));
+                            } else {
+                                player.sendSystemMessage(Component.literal("No villager nearby"));
+                            }
+                            return 1;
+                        })
+                )
+        );
+    }
+}
+
+
+================================================================================
+[FILE]: \src\main\java\com\economymod\neural\NeuralConfig.java
+================================================================================
+package com.economymod.neural;
+
+public final class NeuralConfig {
+    public static boolean ENABLED = true;
+
+    // РџР°СЂР°РјРµС‚СЂС‹ РЅРµР№СЂРѕРЅРѕРІ
+    public static final float ACTIVATION_THRESHOLD = 0.5f;  // РїРѕСЂРѕРі Р°РєС‚РёРІР°С†РёРё
+    public static final float DECAY_RATE = 0.01f;          // Р·Р°С‚СѓС…Р°РЅРёРµ СЃРёРіРЅР°Р»Р° Р·Р° С‚РёРє
+    public static final float LEAK_RATE = 0.1f;            // СѓС‚РµС‡РєР° РїРѕС‚РµРЅС†РёР°Р»Р°
+
+    // РџР°СЂР°РјРµС‚СЂС‹ СЃРёРЅР°РїСЃРѕРІ
+    public static final float LEARNING_RATE = 0.001f;       // СЃРєРѕСЂРѕСЃС‚СЊ РѕР±СѓС‡РµРЅРёСЏ РҐРµР±Р±Р°
+    public static final float MAX_WEIGHT = 2.0f;
+    public static final float MIN_WEIGHT = -2.0f;
+
+    // РҐРёРјРёС‡РµСЃРєРёРµ РєРѕРЅС†РµРЅС‚СЂР°С†РёРё (РІРЅСѓС‚СЂРµРЅРЅРёРµ РЅРµР№СЂРѕРЅС‹)
+    public static final float CHEM_DOPAMINE = 0.0f;   // СѓРґРѕРІРѕР»СЊСЃС‚РІРёРµ
+    public static final float CHEM_SEROTONIN = 0.0f;  // РїРѕРєРѕР№
+    public static final float CHEM_CORTISOL = 0.0f;   // СЃС‚СЂРµСЃСЃ
+    public static final float CHEM_ENDORPHIN = 0.0f;  // РѕР±РµР·Р±РѕР»РёРІР°РЅРёРµ
+    public static final float CHEM_OXITOCIN = 0.0f;   // РїСЂРёРІСЏР·Р°РЅРЅРѕСЃС‚СЊ
+
+    private NeuralConfig() {}
+}
+
+
+================================================================================
+[FILE]: \src\main\java\com\economymod\neural\NeuralDesireProcessor.java
+================================================================================
+package com.economymod.neural;
+
+import com.economymod.attachment.VillagerAttachment;
+import com.economymod.economy.desire.Desire;
+import com.economymod.economy.desire.Desire.DesireType;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class NeuralDesireProcessor {
+    private final VillagerAttachment attachment;
+    private final NeuralNetwork network;
+
+    public NeuralDesireProcessor(VillagerAttachment attachment, NeuralNetwork network) {
+        this.attachment = attachment;
+        this.network = network;
+    }
+
+    public List<Desire> calculateDesires() {
+        List<Desire> desires = new ArrayList<>();
+        if (!NeuralConfig.ENABLED) return desires;
+
+        float eat = network.getOutputActivation(NeuralNetwork.OUTPUT_EAT);
+        float sleep = network.getOutputActivation(NeuralNetwork.OUTPUT_SLEEP);
+        float trade = network.getOutputActivation(NeuralNetwork.OUTPUT_TRADE);
+        float run = network.getOutputActivation(NeuralNetwork.OUTPUT_RUN_AWAY);
+        float explore = network.getOutputActivation(NeuralNetwork.OUTPUT_EXPLORE);
+        float socialize = network.getOutputActivation(NeuralNetwork.OUTPUT_SOCIALIZE);
+
+        if (eat > 0.6f) desires.add(new Desire(findBestFood(), DesireType.CONSUMABLE, (int)(eat * 100)));
+        if (sleep > 0.6f) desires.add(new Desire(ItemStack.EMPTY, DesireType.LUXURY, (int)(sleep * 100)));
+        if (trade > 0.6f) desires.add(createTradeDesire());
+        if (run > 0.7f) desires.add(new Desire(ItemStack.EMPTY, DesireType.LUXURY, (int)(run * 100)));
+        if (explore > 0.6f) desires.add(new Desire(ItemStack.EMPTY, DesireType.LUXURY, (int)(explore * 100)));
+        if (socialize > 0.6f) desires.add(new Desire(ItemStack.EMPTY, DesireType.LUXURY, (int)(socialize * 100)));
+
+        return desires;
+    }
+
+    private Desire createTradeDesire() {
+        // РС‰РµРј С‡С‚Рѕ РјРѕР¶РЅРѕ РїСЂРѕРґР°С‚СЊ
+        for (int i = 0; i < attachment.getInventory().getContainerSize(); i++) {
+            ItemStack stack = attachment.getInventory().getItem(i);
+            if (!stack.isEmpty() && stack.is(Items.WHEAT)) {
+                return new Desire(stack.copy(), DesireType.MATERIAL, 70);
+            }
+        }
+        return new Desire(new ItemStack(Items.WHEAT, 1), DesireType.MATERIAL, 70);
+    }
+
+    private ItemStack findBestFood() {
+        for (int i = 0; i < attachment.getInventory().getContainerSize(); i++) {
+            ItemStack stack = attachment.getInventory().getItem(i);
+            if (!stack.isEmpty() && (stack.is(Items.BREAD) || stack.is(Items.APPLE) || stack.is(Items.COOKED_BEEF))) {
+                return stack.copy();
+            }
+        }
+        return new ItemStack(Items.BREAD, 1);
+    }
+}
+
+
+================================================================================
+[FILE]: \src\main\java\com\economymod\neural\NeuralManager.java
+================================================================================
+package com.economymod.neural;
+
+import com.economymod.EconomyMod;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.npc.Villager;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
+import net.neoforged.neoforge.event.tick.LevelTickEvent;
+import net.neoforged.neoforge.event.server.ServerStartedEvent;
+import net.neoforged.neoforge.event.server.ServerStoppingEvent;
+import net.minecraft.world.phys.AABB;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+
+@EventBusSubscriber(modid = EconomyMod.MODID)
+public class NeuralManager {
+    private static final Map<UUID, NeuralNetwork> networks = new HashMap<>();
+    private static boolean isActive = false;
+
+    public static NeuralNetwork getOrCreate(Villager villager) {
+        UUID id = villager.getUUID();
+        if (!networks.containsKey(id)) {
+            networks.put(id, new NeuralNetwork(villager));
+            EconomyMod.LOGGER.debug("NeuralNetwork created for {}", villager.getName().getString());
+        }
+        return networks.get(id);
+    }
+
+    public static NeuralNetwork get(Villager villager) {
+        return networks.get(villager.getUUID());
+    }
+
+    @SubscribeEvent
+    public static void onServerStarted(ServerStartedEvent event) {
+        isActive = true;
+        EconomyMod.LOGGER.info("Neural system activated");
+    }
+
+    @SubscribeEvent
+    public static void onLevelTick(LevelTickEvent.Post event) {
+        if (!NeuralConfig.ENABLED) return;
+        if (event.getLevel().isClientSide()) return;
+        if (!(event.getLevel() instanceof ServerLevel level)) return;
+
+        AABB worldArea = new AABB(level.getWorldBorder().getMinX(), -64, level.getWorldBorder().getMinZ(),
+                level.getWorldBorder().getMaxX(), 320, level.getWorldBorder().getMaxZ());
+        for (Villager villager : level.getEntitiesOfClass(Villager.class, worldArea, Entity::isAlive)) {
+            NeuralNetwork net = getOrCreate(villager);
+            net.tick();
+        }
+    }
+
+    @SubscribeEvent
+    public static void onEntityJoin(EntityJoinLevelEvent event) {
+        if (!NeuralConfig.ENABLED) return;
+        if (event.getLevel().isClientSide()) return;
+        if (event.getEntity() instanceof Villager villager) {
+            getOrCreate(villager);
+        }
+    }
+
+    @SubscribeEvent
+    public static void onServerStopping(ServerStoppingEvent event) {
+        networks.clear();
+        isActive = false;
+    }
+
+    public static void toggle() {
+        NeuralConfig.ENABLED = !NeuralConfig.ENABLED;
+        EconomyMod.LOGGER.info("Neural system " + (NeuralConfig.ENABLED ? "enabled" : "disabled"));
+    }
+
+    public static String getStatus(Villager villager) {
+        NeuralNetwork net = networks.get(villager.getUUID());
+        if (net == null) return "No network";
+        return String.format("Eat:%.2f Sleep:%.2f Trade:%.2f Run:%.2f Explore:%.2f Socialize:%.2f",
+                net.getOutputActivation(NeuralNetwork.OUTPUT_EAT),
+                net.getOutputActivation(NeuralNetwork.OUTPUT_SLEEP),
+                net.getOutputActivation(NeuralNetwork.OUTPUT_TRADE),
+                net.getOutputActivation(NeuralNetwork.OUTPUT_RUN_AWAY),
+                net.getOutputActivation(NeuralNetwork.OUTPUT_EXPLORE),
+                net.getOutputActivation(NeuralNetwork.OUTPUT_SOCIALIZE)
+        );
+    }
+}
+
+
+================================================================================
+[FILE]: \src\main\java\com\economymod\neural\NeuralNetwork.java
+================================================================================
+package com.economymod.neural;
+
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import java.util.*;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.level.LightLayer;
+
+public class NeuralNetwork {
+    private final Villager villager;
+    private final Map<String, Neuron> neurons = new HashMap<>();
+    private final List<Neuron> sensorNeurons = new ArrayList<>();
+    private final List<Neuron> outputNeurons = new ArrayList<>();
+
+    // Р’С‹С…РѕРґРЅС‹Рµ РЅРµР№СЂРѕРЅС‹ (РіРµРЅРµСЂРёСЂСѓСЋС‚ Р¶РµР»Р°РЅРёСЏ)
+    public static final String OUTPUT_EAT = "EAT";
+    public static final String OUTPUT_SLEEP = "SLEEP";
+    public static final String OUTPUT_TRADE = "TRADE";
+    public static final String OUTPUT_RUN_AWAY = "RUN_AWAY";
+    public static final String OUTPUT_EXPLORE = "EXPLORE";
+    public static final String OUTPUT_SOCIALIZE = "SOCIALIZE";
+
+    // РЎРµРЅСЃРѕСЂРЅС‹Рµ РЅРµР№СЂРѕРЅС‹ (РїРѕР»СѓС‡Р°СЋС‚ СЃРёРіРЅР°Р» РёР· РјРёСЂР°)
+    public static final String SENSOR_HUNGER = "HUNGER";
+    public static final String SENSOR_FATIGUE = "FATIGUE";
+    public static final String SENSOR_HEALTH = "HEALTH";
+    public static final String SENSOR_SOCIAL = "SOCIAL";
+    public static final String SENSOR_HOSTILE = "HOSTILE";
+    public static final String SENSOR_COMFORT = "COMFORT";
+    public static final String SENSOR_CURIOSITY = "CURIOSITY";
+
+    // Р’РЅСѓС‚СЂРµРЅРЅРёРµ РЅРµР№СЂРѕРЅС‹ (С…РёРјРёС‡РµСЃРєРёРµ РєРѕРЅС†РµРЅС‚СЂР°С†РёРё)
+    public static final String CHEM_DOPAMINE = "DOPAMINE";
+    public static final String CHEM_SEROTONIN = "SEROTONIN";
+    public static final String CHEM_CORTISOL = "CORTISOL";
+    public static final String CHEM_ENDORPHIN = "ENDORPHIN";
+    public static final String CHEM_OXITOCIN = "OXITOCIN";
+
+    private int tickCounter = 0;
+
+    public NeuralNetwork(Villager villager) {
+        this.villager = villager;
+        buildNetwork();
+    }
+
+    /** РџРѕСЃС‚СЂРѕРµРЅРёРµ СЃРµС‚Рё СЃ РЅР°С‡Р°Р»СЊРЅС‹РјРё РІРµСЃР°РјРё (Р·Р°С‡Р°С‚РѕС‡РЅР°СЏ Р»РёС‡РЅРѕСЃС‚СЊ) */
+    private void buildNetwork() {
+        // РЎРѕР·РґР°С‘Рј СЃРµРЅСЃРѕСЂРЅС‹Рµ РЅРµР№СЂРѕРЅС‹
+        createNeuron(SENSOR_HUNGER, Neuron.NeuronType.SENSOR);
+        createNeuron(SENSOR_FATIGUE, Neuron.NeuronType.SENSOR);
+        createNeuron(SENSOR_HEALTH, Neuron.NeuronType.SENSOR);
+        createNeuron(SENSOR_SOCIAL, Neuron.NeuronType.SENSOR);
+        createNeuron(SENSOR_HOSTILE, Neuron.NeuronType.SENSOR);
+        createNeuron(SENSOR_COMFORT, Neuron.NeuronType.SENSOR);
+        createNeuron(SENSOR_CURIOSITY, Neuron.NeuronType.SENSOR);
+
+        // Р’РЅСѓС‚СЂРµРЅРЅРёРµ С…РёРјРёС‡РµСЃРєРёРµ РЅРµР№СЂРѕРЅС‹
+        createNeuron(CHEM_DOPAMINE, Neuron.NeuronType.INTERNAL);
+        createNeuron(CHEM_SEROTONIN, Neuron.NeuronType.INTERNAL);
+        createNeuron(CHEM_CORTISOL, Neuron.NeuronType.INTERNAL);
+        createNeuron(CHEM_ENDORPHIN, Neuron.NeuronType.INTERNAL);
+        createNeuron(CHEM_OXITOCIN, Neuron.NeuronType.INTERNAL);
+
+        // Р’С‹С…РѕРґРЅС‹Рµ РЅРµР№СЂРѕРЅС‹
+        createNeuron(OUTPUT_EAT, Neuron.NeuronType.OUTPUT);
+        createNeuron(OUTPUT_SLEEP, Neuron.NeuronType.OUTPUT);
+        createNeuron(OUTPUT_TRADE, Neuron.NeuronType.OUTPUT);
+        createNeuron(OUTPUT_RUN_AWAY, Neuron.NeuronType.OUTPUT);
+        createNeuron(OUTPUT_EXPLORE, Neuron.NeuronType.OUTPUT);
+        createNeuron(OUTPUT_SOCIALIZE, Neuron.NeuronType.OUTPUT);
+
+        // ========== РЎР’РЇР—Р (РЎРРќРђРџРЎР«) РЎ РќРђР§РђР›Р¬РќР«РњР Р’Р•РЎРђРњР ==========
+        // РЎРµРЅСЃРѕСЂС‹ в†’ С…РёРјРёСЏ
+        connect(SENSOR_HUNGER, CHEM_DOPAMINE, -0.5f);
+        connect(SENSOR_HUNGER, CHEM_CORTISOL, 0.6f);
+        connect(SENSOR_FATIGUE, CHEM_SEROTONIN, -0.4f);
+        connect(SENSOR_FATIGUE, CHEM_CORTISOL, 0.5f);
+        connect(SENSOR_HEALTH, CHEM_ENDORPHIN, -0.3f);
+        connect(SENSOR_HEALTH, CHEM_CORTISOL, 0.7f);
+        connect(SENSOR_SOCIAL, CHEM_OXITOCIN, 0.8f);
+        connect(SENSOR_SOCIAL, CHEM_DOPAMINE, 0.5f);
+        connect(SENSOR_HOSTILE, CHEM_CORTISOL, 1.2f);
+        connect(SENSOR_HOSTILE, CHEM_SEROTONIN, -0.6f);
+        connect(SENSOR_COMFORT, CHEM_SEROTONIN, 0.7f);
+        connect(SENSOR_COMFORT, CHEM_DOPAMINE, 0.4f);
+        connect(SENSOR_CURIOSITY, CHEM_DOPAMINE, 0.3f);
+
+        // РҐРёРјРёСЏ в†’ РІС‹С…РѕРґС‹ (РіР»Р°РІРЅС‹Рµ СѓРїСЂР°РІР»СЏСЋС‰РёРµ СЃРІСЏР·Рё)
+        connect(CHEM_CORTISOL, OUTPUT_RUN_AWAY, 1.0f);
+        connect(CHEM_CORTISOL, OUTPUT_TRADE, -0.5f);
+        connect(CHEM_DOPAMINE, OUTPUT_EAT, 0.6f);
+        connect(CHEM_DOPAMINE, OUTPUT_EXPLORE, 0.4f);
+        connect(CHEM_SEROTONIN, OUTPUT_SLEEP, 0.7f);
+        connect(CHEM_SEROTONIN, OUTPUT_EAT, -0.3f);
+        connect(CHEM_OXITOCIN, OUTPUT_SOCIALIZE, 0.9f);
+        connect(CHEM_ENDORPHIN, OUTPUT_RUN_AWAY, -0.5f);
+
+        // Р”РѕРїРѕР»РЅРёС‚РµР»СЊРЅС‹Рµ РїСЂСЏРјС‹Рµ СЃРІСЏР·Рё СЃРµРЅСЃРѕСЂРѕРІ РЅР° РІС‹С…РѕРґС‹ (РґР»СЏ Р±С‹СЃС‚СЂРѕР№ СЂРµР°РєС†РёРё)
+        connect(SENSOR_HUNGER, OUTPUT_EAT, 0.8f);
+        connect(SENSOR_FATIGUE, OUTPUT_SLEEP, 0.9f);
+        connect(SENSOR_HOSTILE, OUTPUT_RUN_AWAY, 1.2f);
+        connect(SENSOR_SOCIAL, OUTPUT_SOCIALIZE, 0.7f);
+    }
+
+    private Neuron createNeuron(String name, Neuron.NeuronType type) {
+        Neuron n = new Neuron(name, type);
+        neurons.put(name, n);
+        if (type == Neuron.NeuronType.SENSOR) sensorNeurons.add(n);
+        if (type == Neuron.NeuronType.OUTPUT) outputNeurons.add(n);
+        return n;
+    }
+
+    private void connect(String from, String to, float weight) {
+        Neuron fromNeuron = neurons.get(from);
+        Neuron toNeuron = neurons.get(to);
+        if (fromNeuron != null && toNeuron != null) {
+            fromNeuron.addOutput(new Synapse(fromNeuron, toNeuron, weight));
+        }
+    }
+
+    /** РћР±РЅРѕРІР»РµРЅРёРµ СЃРµС‚Рё вЂ“ РІС‹Р·С‹РІР°РµС‚СЃСЏ РєР°Р¶РґС‹Р№ С‚РёРє */
+    public void tick() {
+        if (!NeuralConfig.ENABLED) return;
+
+        // 1. РћР±РЅРѕРІР»СЏРµРј СЃРµРЅСЃРѕСЂС‹ РЅР° РѕСЃРЅРѕРІРµ СЃРѕСЃС‚РѕСЏРЅРёСЏ Р¶РёС‚РµР»СЏ
+        updateSensors();
+
+        // 2. РћР±РЅРѕРІР»СЏРµРј РІСЃРµ РЅРµР№СЂРѕРЅС‹ (РїРѕС‚РµРЅС†РёР°Р» в†’ Р°РєС‚РёРІР°С†РёСЏ в†’ РїРµСЂРµРґР°С‡Р° СЃРёРіРЅР°Р»Р°)
+        for (Neuron n : neurons.values()) {
+            n.update();
+        }
+
+        // 3. РџСЂРёРјРµРЅСЏРµРј СЌС„С„РµРєС‚С‹ С…РёРјРёРё РЅР° Р¶РёС‚РµР»СЏ (РѕРїС†РёРѕРЅР°Р»СЊРЅРѕ)
+        applyChemistryEffects();
+
+        tickCounter++;
+    }
+
+    private void updateSensors() {
+        // Р”Р»СЏ С‚РµСЃС‚РѕРІРѕР№ СЃСѓС‰РЅРѕСЃС‚Рё (villager == null) РёСЃРїРѕР»СЊР·СѓРµРј Р·Р°РіР»СѓС€РєРё
+        if (villager == null) {
+            // Р—Р°РіР»СѓС€РєРё РґР»СЏ С‚РµСЃС‚РѕРІРѕР№ СЃСѓС‰РЅРѕСЃС‚Рё
+            stimulate(SENSOR_HUNGER, 0.5f);
+            stimulate(SENSOR_FATIGUE, 0.3f);
+            stimulate(SENSOR_HEALTH, 0.2f);
+            stimulate(SENSOR_SOCIAL, 0.1f);
+            stimulate(SENSOR_HOSTILE, 0.0f);
+            stimulate(SENSOR_COMFORT, 0.7f);
+            stimulate(SENSOR_CURIOSITY, 0.4f);
+            return;
+        }
+
+        var att = villager.getData(com.economymod.registry.ModAttachments.VILLAGER.get());
+        if (att == null) return;
+
+        float hungerValue = 1.0f - (float)(att.getHunger() / 20.0f);
+        stimulate(SENSOR_HUNGER, hungerValue);
+
+        float fatigueValue = 0.5f;
+        stimulate(SENSOR_FATIGUE, fatigueValue);
+
+        float healthValue = 1.0f - (villager.getHealth() / villager.getMaxHealth());
+        stimulate(SENSOR_HEALTH, healthValue);
+
+        boolean hasNearby = villager.level().getEntitiesOfClass(Villager.class, villager.getBoundingBox().inflate(8), v -> v != villager).size() > 0;
+        stimulate(SENSOR_SOCIAL, hasNearby ? 0.7f : 0.0f);
+
+        boolean hasHostile = !villager.level().getEntitiesOfClass(net.minecraft.world.entity.monster.Monster.class, villager.getBoundingBox().inflate(16)).isEmpty();
+        stimulate(SENSOR_HOSTILE, hasHostile ? 1.0f : 0.0f);
+
+        int light = villager.level().getBrightness(net.minecraft.world.level.LightLayer.BLOCK, villager.blockPosition());
+        stimulate(SENSOR_COMFORT, light / 15.0f);
+
+        stimulate(SENSOR_CURIOSITY, 0.2f);
+    }
+
+    private float computeComfort() {
+        float comfort = 0.5f;
+        int light = villager.level().getBrightness(LightLayer.BLOCK, villager.blockPosition());
+        if (light > 7) comfort += 0.2f;
+        else if (light < 4) comfort -= 0.2f;
+        return Math.min(1.0f, Math.max(0.0f, comfort));
+    }
+
+    private void stimulate(String neuronName, float intensity) {
+        Neuron n = neurons.get(neuronName);
+        if (n != null) n.stimulate(intensity);
+    }
+
+    public void stimulateSensor(String sensorName, float intensity) {
+        Neuron n = neurons.get(sensorName);
+        if (n != null) n.stimulate(intensity);
+    }
+
+    /** РџСЂРёРјРµРЅРµРЅРёРµ С…РёРјРёС‡РµСЃРєРёС… РєРѕРЅС†РµРЅС‚СЂР°С†РёР№ Рє Р¶РёС‚РµР»СЋ */
+    private void applyChemistryEffects() {
+        // Р”Р»СЏ С‚РµСЃС‚РѕРІРѕР№ СЃСѓС‰РЅРѕСЃС‚Рё (villager == null) РїСЂРѕРїСѓСЃРєР°РµРј
+        if (villager == null) return;
+
+        Neuron dopamine = neurons.get(CHEM_DOPAMINE);
+        Neuron cortisol = neurons.get(CHEM_CORTISOL);
+        Neuron serotonin = neurons.get(CHEM_SEROTONIN);
+
+        if (dopamine != null && dopamine.getActivation() > 0.7f) {
+            // Р”РѕС„Р°РјРёРЅ в†’ СЃС‡Р°СЃС‚СЊРµ (РјРѕР¶РЅРѕ РґРѕР±Р°РІРёС‚СЊ СЌС„С„РµРєС‚ СЃРєРѕСЂРѕСЃС‚Рё)
+            // РџРѕРєР° РЅРёС‡РµРіРѕ
+        }
+
+        if (cortisol != null && cortisol.getActivation() > 0.8f) {
+            // РљРѕСЂС‚РёР·РѕР» в†’ СЃС‚СЂРµСЃСЃ, РјРѕР¶РµС‚ СЃРЅРёР¶Р°С‚СЊ СЌС„С„РµРєС‚РёРІРЅРѕСЃС‚СЊ
+            // РџРѕРєР° РЅРёС‡РµРіРѕ
+        }
+
+        if (serotonin != null && serotonin.getActivation() > 0.7f) {
+            // РЎРµСЂРѕС‚РѕРЅРёРЅ в†’ РїРѕРєРѕР№, СЂРµРіРµРЅРµСЂР°С†РёСЏ
+            if (villager.tickCount % 40 == 0 && villager.getHealth() < villager.getMaxHealth()) {
+                villager.heal(0.5f);
+            }
+        }
+    }
+
+    /** РџРѕР»СѓС‡РёС‚СЊ Р°РєС‚РёРІР°С†РёСЋ РІС‹С…РѕРґРЅРѕРіРѕ РЅРµР№СЂРѕРЅР° (РґР»СЏ РіРµРЅРµСЂР°С†РёРё Р¶РµР»Р°РЅРёСЏ) */
+    public float getOutputActivation(String outputName) {
+        Neuron n = neurons.get(outputName);
+        return n != null ? n.getActivation() : 0.0f;
+    }
+
+    /** РћРїСЂРµРґРµР»РёС‚СЊ, РєР°РєРѕРµ Р¶РµР»Р°РЅРёРµ СЃРµР№С‡Р°СЃ СЃР°РјРѕРµ СЃРёР»СЊРЅРѕРµ */
+    public String getStrongestDesire() {
+        float max = 0.0f;
+        String best = null;
+        for (Neuron n : outputNeurons) {
+            if (n.getActivation() > max) {
+                max = n.getActivation();
+                best = n.name;
+            }
+        }
+        return best;
+    }
+
+    /** РЎРѕС…СЂР°РЅРёС‚СЊ РІРµСЃР° СЃРµС‚Рё (РґР»СЏ СЃРѕС…СЂР°РЅРµРЅРёСЏ Р»РёС‡РЅРѕСЃС‚Рё) */
+    public CompoundTag save() {
+        CompoundTag tag = new CompoundTag();
+        // РЎРѕС…СЂР°РЅСЏРµРј РІРµСЃР° РІСЃРµС… СЃРёРЅР°РїСЃРѕРІ
+        // (РґР»СЏ РєСЂР°С‚РєРѕСЃС‚Рё вЂ“ РјРѕР¶РЅРѕ СЃРѕС…СЂР°РЅСЏС‚СЊ С‚РѕР»СЊРєРѕ РІРµСЃР°, РµСЃР»Рё РЅСѓР¶РЅР° РїРµСЂСЃРёСЃС‚РµРЅС‚РЅРѕСЃС‚СЊ)
+        return tag;
+    }
+
+    public void load(CompoundTag tag) {
+        // Р’РѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёРµ РІРµСЃРѕРІ
+    }
+}
+
+
+================================================================================
+[FILE]: \src\main\java\com\economymod\neural\Neuron.java
+================================================================================
+package com.economymod.neural;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class Neuron {
+    public enum NeuronType {
+        SENSOR,     // РІС…РѕРґРЅРѕР№ (РїРѕР»СѓС‡Р°РµС‚ СЃРёРіРЅР°Р» РёР·РІРЅРµ)
+        INTERNAL,   // РІРЅСѓС‚СЂРµРЅРЅРёР№ (С…РёРјРёС‡РµСЃРєР°СЏ РєРѕРЅС†РµРЅС‚СЂР°С†РёСЏ)
+        OUTPUT      // РІС‹С…РѕРґРЅРѕР№ (РіРµРЅРµСЂРёСЂСѓРµС‚ Р¶РµР»Р°РЅРёРµ)
+    }
+
+    public final String name;
+    public final NeuronType type;
+    private float activation = 0.0f;      // С‚РµРєСѓС‰Р°СЏ Р°РєС‚РёРІР°С†РёСЏ (0-1)
+    private float potential = 0.0f;       // РЅР°РєРѕРїР»РµРЅРЅС‹Р№ РїРѕС‚РµРЅС†РёР°Р»
+    private final List<Synapse> outputs = new ArrayList<>();  // РёСЃС…РѕРґСЏС‰РёРµ СЃРІСЏР·Рё
+
+    public Neuron(String name, NeuronType type) {
+        this.name = name;
+        this.type = type;
+    }
+
+    public float getActivation() { return activation; }
+    public void setActivation(float value) { activation = Math.min(1.0f, Math.max(0.0f, value)); }
+
+    public void addOutput(Synapse synapse) {
+        outputs.add(synapse);
+    }
+
+    public List<Synapse> getOutputs() { return outputs; }
+
+    /** РџРѕР»СѓС‡РёС‚СЊ СЃРёРіРЅР°Р» РѕС‚ РґСЂСѓРіРѕРіРѕ РЅРµР№СЂРѕРЅР° (РґРѕР±Р°РІРёС‚СЊ Рє РїРѕС‚РµРЅС†РёР°Р»Сѓ) */
+    public void receiveSignal(float signal) {
+        potential += signal;
+    }
+
+    /** РћР±РЅРѕРІРёС‚СЊ РЅРµР№СЂРѕРЅ: РїРѕС‚РµРЅС†РёР°Р» в†’ Р°РєС‚РёРІР°С†РёСЏ, Р·Р°С‚РµРј РѕС‚РїСЂР°РІРёС‚СЊ СЃРёРіРЅР°Р» РїРѕ СЃРёРЅР°РїСЃР°Рј */
+    public void update() {
+        // РЈС‚РµС‡РєР° РїРѕС‚РµРЅС†РёР°Р»Р°
+        potential *= (1.0f - NeuralConfig.LEAK_RATE);
+        // Р—Р°С‚СѓС…Р°РЅРёРµ Р°РєС‚РёРІР°С†РёРё
+        activation *= (1.0f - NeuralConfig.DECAY_RATE);
+
+        // Р•СЃР»Рё РїРѕС‚РµРЅС†РёР°Р» РїСЂРµРІС‹СЃРёР» РїРѕСЂРѕРі вЂ“ РЅРµР№СЂРѕРЅ Р°РєС‚РёРІРёСЂСѓРµС‚СЃСЏ
+        if (potential >= NeuralConfig.ACTIVATION_THRESHOLD) {
+            activation = 1.0f;
+            potential = 0.0f;  // СЃР±СЂРѕСЃ РїРѕСЃР»Рµ Р°РєС‚РёРІР°С†РёРё
+        }
+
+        // РћС‚РїСЂР°РІРёС‚СЊ СЃРёРіРЅР°Р» РїРѕ РІСЃРµРј РёСЃС…РѕРґСЏС‰РёРј СЃРёРЅР°РїСЃР°Рј
+        for (Synapse synapse : outputs) {
+            synapse.transmit(activation);
+        }
+    }
+
+    /** РџСЂСЏРјР°СЏ СЃС‚РёРјСѓР»СЏС†РёСЏ СЃРµРЅСЃРѕСЂРЅРѕРіРѕ РЅРµР№СЂРѕРЅР° (РёР·РІРЅРµ) */
+    public void stimulate(float intensity) {
+        if (type == NeuronType.SENSOR || type == NeuronType.INTERNAL) {
+            receiveSignal(intensity);
+        }
+    }
+
+    /** Р”Р»СЏ РІРЅСѓС‚СЂРµРЅРЅРёС… РЅРµР№СЂРѕРЅРѕРІ вЂ“ РёР·РјРµРЅРµРЅРёРµ С…РёРјРёС‡РµСЃРєРѕР№ РєРѕРЅС†РµРЅС‚СЂР°С†РёРё */
+    public void addChemical(float delta) {
+        if (type == NeuronType.INTERNAL) {
+            receiveSignal(delta);
+        }
+    }
+}
+
+
+================================================================================
+[FILE]: \src\main\java\com\economymod\neural\Synapse.java
+================================================================================
+package com.economymod.neural;
+
+public class Synapse {
+    private final Neuron from;
+    private final Neuron to;
+    private float weight;      // РІРµСЃ СЃРІСЏР·Рё (РјРѕР¶РµС‚ Р±С‹С‚СЊ РѕС‚СЂРёС†Р°С‚РµР»СЊРЅС‹Рј)
+    private float lastFromActivation = 0.0f;  // РґР»СЏ РҐРµР±Р±Р°
+
+    public Synapse(Neuron from, Neuron to, float initialWeight) {
+        this.from = from;
+        this.to = to;
+        this.weight = Math.min(NeuralConfig.MAX_WEIGHT, Math.max(NeuralConfig.MIN_WEIGHT, initialWeight));
+    }
+
+    public float getWeight() { return weight; }
+
+    /** РџРµСЂРµРґР°С‚СЊ СЃРёРіРЅР°Р» РѕС‚ РЅРµР№СЂРѕРЅР°-РёСЃС‚РѕС‡РЅРёРєР° */
+    public void transmit(float fromActivation) {
+        float signal = fromActivation * weight;
+        to.receiveSignal(signal);
+
+        // РџСЂР°РІРёР»Рѕ РҐРµР±Р±Р°: РЅРµР№СЂРѕРЅС‹, Р°РєС‚РёРІРёСЂСѓСЋС‰РёРµСЃСЏ РѕРґРЅРѕРІСЂРµРјРµРЅРЅРѕ, СѓСЃРёР»РёРІР°СЋС‚ СЃРІСЏР·СЊ
+        if (fromActivation > 0.5f && lastFromActivation > 0.5f && to.getActivation() > 0.5f) {
+            weight += NeuralConfig.LEARNING_RATE;
+            weight = Math.min(NeuralConfig.MAX_WEIGHT, Math.max(NeuralConfig.MIN_WEIGHT, weight));
+        }
+        lastFromActivation = fromActivation;
+    }
+
+    public void setWeight(float w) {
+        this.weight = Math.min(NeuralConfig.MAX_WEIGHT, Math.max(NeuralConfig.MIN_WEIGHT, w));
+    }
+}
+
+
+================================================================================
 [FILE]: \src\main\java\com\economymod\registry\ModAttachments.java
 ================================================================================
 package com.economymod.registry;
@@ -6594,6 +8706,7 @@ package com.economymod.registry;
 import com.economymod.EconomyMod;
 import com.economymod.entity.EconomyTraderEntity;
 import com.economymod.entity.VillageGuardEntity;
+import com.economymod.entity.TestCreatureEntity; // в†ђ Р”РћР‘РђР’РРўР¬ РРњРџРћР Рў
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobCategory;
 import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
@@ -6612,7 +8725,6 @@ public class ModEntities {
                     .clientTrackingRange(10)
                     .build("economy_trader"));
 
-    // РРЎРџР РђР’Р›Р•РќРћ: VillageGuardEntity С‚РµРїРµСЂСЊ СЏРІР»СЏРµС‚СЃСЏ РїРѕРґС‚РёРїРѕРј Villager
     public static final DeferredHolder<EntityType<?>, EntityType<VillageGuardEntity>>
             VILLAGE_GUARD = ENTITY_TYPES.register("village_guard", () ->
             EntityType.Builder.of(VillageGuardEntity::new, MobCategory.CREATURE)
@@ -6620,9 +8732,18 @@ public class ModEntities {
                     .clientTrackingRange(10)
                     .build("village_guard"));
 
+    // РќРѕРІР°СЏ С‚РµСЃС‚РѕРІР°СЏ СЃСѓС‰РЅРѕСЃС‚СЊ
+    public static final DeferredHolder<EntityType<?>, EntityType<TestCreatureEntity>>
+            TEST_CREATURE = ENTITY_TYPES.register("test_creature", () ->
+            EntityType.Builder.of(TestCreatureEntity::new, MobCategory.CREATURE)
+                    .sized(0.6f, 0.6f)
+                    .clientTrackingRange(10)
+                    .build("test_creature"));
+
     public static void registerAttributes(EntityAttributeCreationEvent event) {
         event.put(ECONOMY_TRADER.get(), EconomyTraderEntity.createAttributes().build());
         event.put(VILLAGE_GUARD.get(), VillageGuardEntity.createAttributes().build());
+        event.put(TEST_CREATURE.get(), TestCreatureEntity.createAttributes().build()); // в†ђ РґРѕР±Р°РІРёС‚СЊ
     }
 }
 
@@ -6739,6 +8860,42 @@ public class ModPackets {
                 ClientboundSellContainerSyncPacket::handleClient
         );
     }
+}
+
+
+================================================================================
+[FILE]: \src\main\java\com\economymod\registry\ModProfessions.java
+================================================================================
+package com.economymod.registry;
+
+import com.economymod.EconomyMod;
+import com.google.common.collect.ImmutableSet;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.world.entity.ai.village.poi.PoiType;
+import net.minecraft.world.entity.npc.VillagerProfession;
+import net.minecraft.world.level.block.Blocks;
+import net.neoforged.neoforge.registries.DeferredRegister;
+import net.neoforged.neoforge.registries.DeferredHolder;
+
+public class ModProfessions {
+    public static final DeferredRegister<PoiType> POI_TYPES =
+            DeferredRegister.create(Registries.POINT_OF_INTEREST_TYPE, EconomyMod.MODID);
+    public static final DeferredRegister<VillagerProfession> PROFESSIONS =
+            DeferredRegister.create(Registries.VILLAGER_PROFESSION, EconomyMod.MODID);
+
+    private static final ImmutableSet<net.minecraft.world.level.block.state.BlockState> TARGET_STATES =
+            ImmutableSet.copyOf(Blocks.TARGET.getStateDefinition().getPossibleStates());
+
+    public static final DeferredHolder<PoiType, PoiType> GUARD_POI = POI_TYPES.register("guard_poi",
+            () -> new PoiType(TARGET_STATES, 1, 1));
+
+    public static final DeferredHolder<VillagerProfession, VillagerProfession> GUARD = PROFESSIONS.register("guard",
+            () -> new VillagerProfession("guard",
+                    holder -> holder.is(GUARD_POI.getKey()),
+                    holder -> holder.is(GUARD_POI.getKey()),
+                    ImmutableSet.of(),
+                    ImmutableSet.of(),
+                    net.minecraft.sounds.SoundEvents.VILLAGER_WORK_WEAPONSMITH));
 }
 
 
@@ -7132,6 +9289,7 @@ import com.economymod.event.VillagerInteractionHandler;
 import com.economymod.registry.ModAttachments;
 import com.economymod.registry.ModEntities;
 import com.economymod.registry.ModMenus;
+import com.economymod.registry.ModProfessions;
 import com.economymod.economy.EconomyManager;
 import com.economymod.attachment.VillagerAttachment;
 import com.mojang.logging.LogUtils;
@@ -7160,6 +9318,11 @@ import net.neoforged.neoforge.event.entity.living.LivingDropsEvent;
 import net.neoforged.neoforge.event.entity.player.ItemEntityPickupEvent;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
 import org.slf4j.Logger;
+import com.economymod.event.GuardAutoAssigner;
+import com.economymod.neural.NeuralManager;
+import com.economymod.neural.NeuralCommand;
+
+
 
 import java.util.HashMap;
 import java.util.Map;
@@ -7173,6 +9336,11 @@ public class EconomyMod {
     private static final Map<UUID, Long> lootDelayQueue = new HashMap<>();
 
     public EconomyMod(IEventBus modEventBus) {
+        ModProfessions.POI_TYPES.register(modEventBus);
+        ModProfessions.PROFESSIONS.register(modEventBus);
+
+
+        NeoForge.EVENT_BUS.register(GuardAutoAssigner.class);
         ModEntities.ENTITY_TYPES.register(modEventBus);
         ModAttachments.ATTACHMENT_TYPES.register(modEventBus);
         ModMenus.MENU_TYPES.register(modEventBus);
@@ -7187,138 +9355,138 @@ public class EconomyMod {
         NeoForge.EVENT_BUS.register(ServerEvents.class);
         NeoForge.EVENT_BUS.register(VillagerInteractionHandler.class);
         NeoForge.EVENT_BUS.register(this);
+        NeoForge.EVENT_BUS.register(GuardAutoAssigner.class);
+        NeoForge.EVENT_BUS.register(NeuralManager.class);
     }
 
-    public static void clearLootQueue() {
-        lootDelayQueue.clear();
-    }
-
-    @SubscribeEvent
-    public void onItemPickup(ItemEntityPickupEvent.Pre event) {
-        ItemStack stack = event.getItemEntity().getItem();
-        if (event.getPlayer() instanceof ServerPlayer sp) {
-            CustomData customData = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY);
-            if (customData.contains("EconomyValue")) {
-                double value = customData.copyTag().getDouble("EconomyValue");
-                var pEco = sp.getData(ModAttachments.PLAYER_ECONOMY.get());
-                if (pEco != null) pEco.add(value);
-                sp.level().playSound(null, sp.blockPosition(), net.minecraft.sounds.SoundEvents.EXPERIENCE_ORB_PICKUP, net.minecraft.sounds.SoundSource.PLAYERS, 0.5F, 1.2F);
-                event.getItemEntity().discard();
-                event.setCanPickup(TriState.FALSE);
-            }
+        public static void clearLootQueue() {
+            lootDelayQueue.clear();
         }
-    }
 
-    @SubscribeEvent
-    public void onEntityJoin(EntityJoinLevelEvent event) {
-        if (event.getEntity() instanceof Villager villager && !event.getLevel().isClientSide) {
-            villager.goalSelector.getAvailableGoals().removeIf(goal ->
-                    goal.getGoal() instanceof TradeWithPlayerGoal || goal.getGoal() instanceof LookAtTradingPlayerGoal);
-            villager.setCanPickUpLoot(true);
-            villager.goalSelector.addGoal(1, new VillagerP2PTradeGoal(villager));
-            villager.goalSelector.addGoal(2, new VillagerCraftingGoal(villager));
-            villager.goalSelector.addGoal(2, new VillagerSmeltingGoal(villager));
-            villager.goalSelector.addGoal(2, new VillagerMiningGoal(villager));
-            villager.goalSelector.addGoal(2, new VillagerCompostingGoal(villager));
-            villager.goalSelector.addGoal(3, new VillagerDepositTrashGoal(villager));
-            var att = villager.getData(ModAttachments.VILLAGER.get());
-            if (att != null && !event.loadedFromDisk()) {
-                lootDelayQueue.put(villager.getUUID(), event.getLevel().getGameTime() + 20);
-            }
-        }
-    }
-
-    @SubscribeEvent
-    public void onLevelTick(LevelTickEvent.Post event) {
-        if (event.getLevel() instanceof ServerLevel serverLevel) {
-            long currentTime = serverLevel.getGameTime();
-
-            lootDelayQueue.entrySet().removeIf(entry -> {
-                Entity entity = serverLevel.getEntity(entry.getKey());
-                if (entity == null || !entity.isAlive()) {
-                    return true;
+        @SubscribeEvent
+        public void onItemPickup(ItemEntityPickupEvent.Pre event) {
+            ItemStack stack = event.getItemEntity().getItem();
+            if (event.getPlayer() instanceof ServerPlayer sp) {
+                CustomData customData = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY);
+                if (customData.contains("EconomyValue")) {
+                    double value = customData.copyTag().getDouble("EconomyValue");
+                    var pEco = sp.getData(ModAttachments.PLAYER_ECONOMY.get());
+                    if (pEco != null) pEco.add(value);
+                    sp.level().playSound(null, sp.blockPosition(), net.minecraft.sounds.SoundEvents.EXPERIENCE_ORB_PICKUP, net.minecraft.sounds.SoundSource.PLAYERS, 0.5F, 1.2F);
+                    event.getItemEntity().discard();
+                    event.setCanPickup(TriState.FALSE);
                 }
-                if (currentTime >= entry.getValue()) {
-                    if (entity instanceof Villager villager) {
-                        var att = villager.getData(ModAttachments.VILLAGER.get());
-                        if (att != null && !att.wasLootGenerated()) {
-                            if (villager.getVillagerData().getProfession() != VillagerProfession.NONE) att.fillInitialLoot();
-                            else att.setLootGenerated(true);
-                        }
+            }
+        }
+
+        @SubscribeEvent
+        public void onEntityJoin(EntityJoinLevelEvent event) {
+            if (event.getEntity() instanceof Villager villager && !event.getLevel().isClientSide) {
+                villager.goalSelector.getAvailableGoals().removeIf(goal ->
+                        goal.getGoal() instanceof TradeWithPlayerGoal || goal.getGoal() instanceof LookAtTradingPlayerGoal);
+                villager.setCanPickUpLoot(true);
+                villager.goalSelector.addGoal(1, new VillagerP2PTradeGoal(villager));
+                villager.goalSelector.addGoal(2, new VillagerCraftingGoal(villager));
+                villager.goalSelector.addGoal(2, new VillagerSmeltingGoal(villager));
+                villager.goalSelector.addGoal(2, new VillagerMiningGoal(villager));
+                villager.goalSelector.addGoal(2, new VillagerCompostingGoal(villager));
+                villager.goalSelector.addGoal(3, new VillagerDepositTrashGoal(villager));
+                var att = villager.getData(ModAttachments.VILLAGER.get());
+                if (att != null && !event.loadedFromDisk()) {
+                    lootDelayQueue.put(villager.getUUID(), event.getLevel().getGameTime() + 20);
+                }
+            }
+        }
+
+        @SubscribeEvent
+        public void onLevelTick(LevelTickEvent.Post event) {
+            if (event.getLevel() instanceof ServerLevel serverLevel) {
+                long currentTime = serverLevel.getGameTime();
+
+                lootDelayQueue.entrySet().removeIf(entry -> {
+                    Entity entity = serverLevel.getEntity(entry.getKey());
+                    if (entity == null || !entity.isAlive()) {
+                        return true;
                     }
-                    return true;
+                    if (currentTime >= entry.getValue()) {
+                        if (entity instanceof Villager villager) {
+                            var att = villager.getData(ModAttachments.VILLAGER.get());
+                            if (att != null && !att.wasLootGenerated()) {
+                                if (villager.getVillagerData().getProfession() != VillagerProfession.NONE) att.fillInitialLoot();
+                                else att.setLootGenerated(true);
+                            }
+                        }
+                        return true;
+                    }
+                    return false;
+                });
+
+                if (currentTime % 20 == 0) {
+                    for (Villager villager : serverLevel.getEntities(EntityTypeTest.forClass(Villager.class), Entity::isAlive)) {
+                        processRealisticPickup(villager, serverLevel);
+                        siphonInventory(villager);
+                    }
                 }
-                return false;
-            });
-
-            if (currentTime % 20 == 0) {
-                for (Villager villager : serverLevel.getEntities(EntityTypeTest.forClass(Villager.class), Entity::isAlive)) {
-                    processRealisticPickup(villager, serverLevel);
-                    siphonInventory(villager);
-                }
-            }
-            com.economymod.economy.systems.VirtualTraderManager.tick(serverLevel);
-            if (economyManager != null) economyManager.tick();
-        }
-    }
-
-    private void processRealisticPickup(Villager villager, ServerLevel level) {
-        var att = villager.getData(ModAttachments.VILLAGER.get());
-        if (att == null) return;
-
-        // РРЎРџР РђР’Р›Р•РќРћ: РЈРІРµР»РёС‡РµРЅ СЂР°РґРёСѓСЃ РґРѕ 1.5 Р±Р»РѕРєРѕРІ, С‡С‚РѕР±С‹ Р¶РёС‚РµР»СЋ Р±С‹Р»Рѕ Р»РµРіС‡Рµ Р·Р°РјРµС‚РёС‚СЊ РєРёРЅСѓС‚С‹Рµ РІРµС‰Рё
-        for (ItemEntity itemEntity : level.getEntitiesOfClass(ItemEntity.class, villager.getBoundingBox().inflate(1.5))) {
-            if (!itemEntity.isAlive() || !itemEntity.onGround()) continue;
-            ItemStack stack = itemEntity.getItem();
-            ItemStack leftover = att.getInventory().addItem(stack.copy());
-            if (leftover.getCount() < stack.getCount()) {
-                itemEntity.setItem(leftover);
-                if (leftover.isEmpty()) itemEntity.discard();
-                level.playSound(null, villager.blockPosition(), net.minecraft.sounds.SoundEvents.ITEM_PICKUP, net.minecraft.sounds.SoundSource.NEUTRAL, 0.5F, 1.0F);
-
-                // Р”РћР‘РђР’Р›Р•РќРћ: Р›РѕРі РїРѕРґР±РѕСЂР° РїСЂРµРґРјРµС‚РѕРІ РІ РєРѕРЅСЃРѕР»СЊ
-                com.economymod.EconomyMod.LOGGER.info("Р­РљРћРќРћРњРРљРђ: Р–РёС‚РµР»СЊ {} СѓСЃРїРµС€РЅРѕ Р·Р°СЃРѕСЃР°Р» СЃ Р·РµРјР»Рё {} x{}",
-                        villager.getName().getString(), stack.getItem().toString(), (stack.getCount() - leftover.getCount()));
+                com.economymod.economy.systems.VirtualTraderManager.tick(serverLevel);
+                if (economyManager != null) economyManager.tick();
             }
         }
-    }
 
-    private void siphonInventory(Villager villager) {
-        SimpleContainer vanillaInv = villager.getInventory();
-        var att = villager.getData(ModAttachments.VILLAGER.get());
-        if (att == null) return;
-        for (int i = 0; i < vanillaInv.getContainerSize(); i++) {
-            ItemStack stack = vanillaInv.getItem(i);
-            if (!stack.isEmpty()) {
-                ItemStack leftover = att.getInventory().addItem(stack.copy());
-                vanillaInv.setItem(i, leftover);
-            }
-        }
-    }
-
-    @SubscribeEvent
-    public void onVillagerDrops(LivingDropsEvent event) {
-        if (event.getEntity() instanceof Villager villager && !villager.level().isClientSide) {
+        private void processRealisticPickup(Villager villager, ServerLevel level) {
             var att = villager.getData(ModAttachments.VILLAGER.get());
-            if (att != null) {
-                SimpleContainer inv = att.getInventory();
-                for (int i = 0; i < inv.getContainerSize(); i++) {
-                    if (!inv.getItem(i).isEmpty()) event.getDrops().add(new ItemEntity(villager.level(), villager.getX(), villager.getY(), villager.getZ(), inv.getItem(i).copy()));
-                }
-                double coins = att.getBalance();
-                if (coins > 0) {
-                    ItemStack moneyStack = new ItemStack(Items.GOLD_NUGGET, 1);
-                    CompoundTag tag = new CompoundTag(); tag.putDouble("EconomyValue", coins);
-                    moneyStack.set(DataComponents.CUSTOM_DATA, CustomData.of(tag));
-                    moneyStack.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
-                    event.getDrops().add(new ItemEntity(villager.level(), villager.getX(), villager.getY(), villager.getZ(), moneyStack));
+            if (att == null) return;
+
+            for (ItemEntity itemEntity : level.getEntitiesOfClass(ItemEntity.class, villager.getBoundingBox().inflate(1.5))) {
+                if (!itemEntity.isAlive() || !itemEntity.onGround()) continue;
+                ItemStack stack = itemEntity.getItem();
+                ItemStack leftover = att.getInventory().addItem(stack.copy());
+                if (leftover.getCount() < stack.getCount()) {
+                    itemEntity.setItem(leftover);
+                    if (leftover.isEmpty()) itemEntity.discard();
+                    level.playSound(null, villager.blockPosition(), net.minecraft.sounds.SoundEvents.ITEM_PICKUP, net.minecraft.sounds.SoundSource.NEUTRAL, 0.5F, 1.0F);
+
+                    com.economymod.EconomyMod.LOGGER.info("Р­РљРћРќРћРњРРљРђ: Р–РёС‚РµР»СЊ {} СѓСЃРїРµС€РЅРѕ Р·Р°СЃРѕСЃР°Р» СЃ Р·РµРјР»Рё {} x{}",
+                            villager.getName().getString(), stack.getItem().toString(), (stack.getCount() - leftover.getCount()));
                 }
             }
         }
-    }
 
-    public static EconomyManager getEconomyManager() { return economyManager; }
-    public static void setEconomyManager(EconomyManager manager) { economyManager = manager; }
-}
+        private void siphonInventory(Villager villager) {
+            SimpleContainer vanillaInv = villager.getInventory();
+            var att = villager.getData(ModAttachments.VILLAGER.get());
+            if (att == null) return;
+            for (int i = 0; i < vanillaInv.getContainerSize(); i++) {
+                ItemStack stack = vanillaInv.getItem(i);
+                if (!stack.isEmpty()) {
+                    ItemStack leftover = att.getInventory().addItem(stack.copy());
+                    vanillaInv.setItem(i, leftover);
+                }
+            }
+        }
+
+        @SubscribeEvent
+        public void onVillagerDrops(LivingDropsEvent event) {
+            if (event.getEntity() instanceof Villager villager && !villager.level().isClientSide) {
+                var att = villager.getData(ModAttachments.VILLAGER.get());
+                if (att != null) {
+                    SimpleContainer inv = att.getInventory();
+                    for (int i = 0; i < inv.getContainerSize(); i++) {
+                        if (!inv.getItem(i).isEmpty()) event.getDrops().add(new ItemEntity(villager.level(), villager.getX(), villager.getY(), villager.getZ(), inv.getItem(i).copy()));
+                    }
+                    double coins = att.getBalance();
+                    if (coins > 0) {
+                        ItemStack moneyStack = new ItemStack(Items.GOLD_NUGGET, 1);
+                        CompoundTag tag = new CompoundTag(); tag.putDouble("EconomyValue", coins);
+                        moneyStack.set(DataComponents.CUSTOM_DATA, CustomData.of(tag));
+                        moneyStack.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
+                        event.getDrops().add(new ItemEntity(villager.level(), villager.getX(), villager.getY(), villager.getZ(), moneyStack));
+                    }
+                }
+            }
+        }
+
+        public static EconomyManager getEconomyManager() { return economyManager; }
+        public static void setEconomyManager(EconomyManager manager) { economyManager = manager; }
+    }
 
 

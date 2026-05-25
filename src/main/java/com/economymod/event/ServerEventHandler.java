@@ -42,6 +42,7 @@ public class ServerEventHandler {
             villager.goalSelector.addGoal(4, new VillagerCraftingGoal(villager));
             villager.goalSelector.addGoal(4, new VillagerCompostingGoal(villager));
             villager.goalSelector.addGoal(5, new VillagerP2PTradeGoal(villager));
+            villager.goalSelector.addGoal(2, new VillagerFarmingGoal(villager));
 
             EconomyMod.LOGGER.info("ЭКОНОМИКА ИИ: Все экономические цели успешно прописаны в мозг жителя [{}]!",
                     villager.getDisplayName().getString());
