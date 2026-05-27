@@ -75,7 +75,7 @@ public class EconomyMod {
         NeoForge.EVENT_BUS.register(VillagerInteractionHandler.class);
         NeoForge.EVENT_BUS.register(this);
         NeoForge.EVENT_BUS.register(GuardAutoAssigner.class);
-        NeoForge.EVENT_BUS.register(NeuralManager.class);
+        //NeoForge.EVENT_BUS.register(NeuralManager.class);
     }
 
         public static void clearLootQueue() {
