@@ -10,6 +10,13 @@ public class BrainTract {
     private final boolean addToExisting;
     private final DendriteSVRule rule;
 
+    // Вес и след (eligibility trace) для обучения
+    private float weight;
+    private float trace;
+    private static final float MAX_WEIGHT = 3.0f;
+    private static final float MIN_WEIGHT = 0.1f;
+    private static final float TRACE_DECAY = 0.95f;
+
     public BrainTract(BrainLobe source, BrainLobe target,
                       int srcX1, int srcY1, int srcX2, int srcY2,
                       int dstX1, int dstY1, int dstX2, int dstY2,
@@ -23,6 +30,8 @@ public class BrainTract {
         this.targetRegister = targetRegister;
         this.addToExisting = addToExisting;
         this.rule = rule != null ? rule : DendriteSVRule.identity();
+        this.weight = 1.0f;
+        this.trace = 0f;
 
         int srcWidth = srcX2 - srcX1 + 1;
         int srcHeight = srcY2 - srcY1 + 1;
@@ -31,6 +40,18 @@ public class BrainTract {
         if (srcWidth != dstWidth || srcHeight != dstHeight) {
             throw new IllegalArgumentException("Source and destination ranges must have same dimensions");
         }
+    }
+
+    public float getWeight() { return weight; }
+    public void setWeight(float w) { weight = Math.min(MAX_WEIGHT, Math.max(MIN_WEIGHT, w)); }
+    public void strengthen(float delta) { setWeight(weight + delta); }
+    public void weaken(float delta) { setWeight(weight - delta); }
+
+    public void decayTrace() { trace *= TRACE_DECAY; }
+
+    public void applyReinforcement(float r, float learningRate) {
+        float delta = learningRate * r * trace;
+        setWeight(weight + delta);
     }
 
     public void apply() {
@@ -45,7 +66,12 @@ public class BrainTract {
                 int dstY = dstY1 + dy;
 
                 float sourceValue = sourceLobe.getRegister(srcX, srcY, sourceRegister);
-                float signal = rule.execute(sourceValue);
+                float rawSignal = rule.execute(sourceValue);
+                float signal = rawSignal * weight;
+
+                if (rawSignal > 0.5f) {
+                    trace = Math.min(1f, trace + 0.1f);
+                }
 
                 if (addToExisting) {
                     float current = targetLobe.getRegister(dstX, dstY, targetRegister);

@@ -7,13 +7,9 @@ public class CreatureBrain {
     private final List<BrainLobe> lobes = new ArrayList<>();
     private final List<BrainTract> tracts = new ArrayList<>();
 
-    public void addLobe(BrainLobe lobe) {
-        lobes.add(lobe);
-    }
-
-    public void addTract(BrainTract tract) {
-        tracts.add(tract);
-    }
+    public void addLobe(BrainLobe lobe) { lobes.add(lobe); }
+    public void addTract(BrainTract tract) { tracts.add(tract); }
+    public List<BrainTract> getTracts() { return tracts; }
 
     public void tick(SensorProvider sensorProvider) {
         for (BrainLobe lobe : lobes) {
@@ -22,17 +18,17 @@ public class CreatureBrain {
         for (BrainTract tract : tracts) {
             tract.apply();
         }
+        for (BrainTract tract : tracts) {
+            tract.decayTrace();
+        }
     }
 
-    public BrainLobe getLobe(int index) {
-        return lobes.get(index);
+    public void reinforce(float r, float learningRate) {
+        for (BrainTract tract : tracts) {
+            tract.applyReinforcement(r, learningRate);
+        }
     }
 
-    public int getLobeCount() {
-        return lobes.size();
-    }
-
-    public List<BrainTract> getTracts() {
-        return tracts;
-    }
+    public BrainLobe getLobe(int index) { return lobes.get(index); }
+    public int getLobeCount() { return lobes.size(); }
 }

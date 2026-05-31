@@ -15,8 +15,8 @@ public class FreedomAnalyzer {
     private BlockPos startPos;
 
     private int escapeRadius = 20;
-    private int maxHorizontalDistance = 250;
-    private int maxNodes = 50000;
+    private int maxHorizontalDistance = 150;      // уменьшено с 250
+    private int maxNodes = 10000;                  // уменьшено с 50000
 
     public FreedomAnalyzer(LivingEntity entity) {
         this.entity = entity;
@@ -25,6 +25,7 @@ public class FreedomAnalyzer {
 
     public void setEscapeRadius(int escapeRadius) { this.escapeRadius = escapeRadius; }
     public void setMaxHorizontalDistance(int maxHorizontalDistance) { this.maxHorizontalDistance = maxHorizontalDistance; }
+    public void setMaxNodes(int maxNodes) { this.maxNodes = maxNodes; }
 
     public Result analyze() {
         startPos = entity.blockPosition();

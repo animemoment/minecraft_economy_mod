@@ -33,6 +33,12 @@ public class LearningSystem {
     private float cachedFreedom = 1f;
     private String cachedContext = "";
     private long lastContextTick = -1;
+    private float cachedNovelty = 0.5f;
+
+    // Циркадные ритмы
+    private float circadianPhase = 0.5f;
+    private long lastCircadianUpdate = -1;
+    private static final int CIRCADIAN_UPDATE_INTERVAL = 20;
 
     public LearningSystem(LivingEntity entity) {
         this.entity = entity;
@@ -42,10 +48,33 @@ public class LearningSystem {
         }
     }
 
+    // ============ ЦИРКАДНЫЕ РИТМЫ ============
+    public void updateCircadian(long dayTime) {
+        if (dayTime != lastCircadianUpdate) {
+            lastCircadianUpdate = dayTime;
+            // dayTime от 0 до 24000, нормализуем в 0..1
+            float newPhase = (dayTime % 24000) / 24000f;
+            // Плавная подстройка внутреннего ритма
+            circadianPhase = circadianPhase * 0.95f + newPhase * 0.05f;
+        }
+    }
+
+    public float getSleepModifier() {
+        // Ночь (0.75..1.0 или 0..0.25) → сон усиливается
+        boolean isNight = (circadianPhase > 0.75f || circadianPhase < 0.25f);
+        return isNight ? 1.5f : 0.5f;
+    }
+
+    public float getActivityModifier() {
+        // День (0.25..0.75) → активность выше
+        boolean isDay = (circadianPhase > 0.25f && circadianPhase < 0.75f);
+        return isDay ? 1.2f : 0.7f;
+    }
+
     // ============ КЭШИРОВАННЫЙ КОНТЕКСТ ============
     public String getCurrentContext() {
         long now = entity.level().getGameTime();
-        if (now - lastContextTick > 20) {
+        if (now - lastContextTick > 40) {
             lastContextTick = now;
             cachedContext = computeContext();
         }
@@ -82,14 +111,15 @@ public class LearningSystem {
         return false;
     }
 
-    // ============ КЭШИРОВАННАЯ СВОБОДА ============
+    // ============ СВОБОДА ============
     public float getFreedom() {
         long now = entity.level().getGameTime();
-        if (now - lastFreedomTick > 40) {
+        if (now - lastFreedomTick > 100) {
             lastFreedomTick = now;
             FreedomAnalyzer analyzer = new FreedomAnalyzer(entity);
             analyzer.setEscapeRadius(20);
-            analyzer.setMaxHorizontalDistance(250);
+            analyzer.setMaxHorizontalDistance(150);
+            analyzer.setMaxNodes(10000);
             FreedomAnalyzer.Result result = analyzer.analyze();
             if (result.free) {
                 cachedFreedom = 1.0f;
@@ -101,7 +131,20 @@ public class LearningSystem {
         return cachedFreedom;
     }
 
-    // ============ ОСТАЛЬНЫЕ МЕТОДЫ (без изменений) ============
+    // ============ НОВИЗНА ============
+    public void updateNovelty(BlockPos currentPos, BlockPos previousPos) {
+        if (previousPos != null && !previousPos.equals(currentPos)) {
+            cachedNovelty = Math.min(1f, cachedNovelty + 0.05f);
+        } else {
+            cachedNovelty = Math.max(0f, cachedNovelty - 0.02f);
+        }
+    }
+
+    public float getNovelty() {
+        return cachedNovelty;
+    }
+
+    // ============ ДИСТРЕСС ============
     public float calculateDistress(float health, float hunger, float fatigue) {
         float freedom = getFreedom();
         float novelty = getNovelty();
@@ -119,6 +162,7 @@ public class LearningSystem {
         return Math.min(1f, distress);
     }
 
+    // ============ ОБУЧЕНИЕ ============
     public void learnNegative(MemoryType type, String context, float intensity) {
         if (context == null || context.isEmpty()) return;
         Map<String, Float> mem = memories.get(type);
@@ -191,7 +235,7 @@ public class LearningSystem {
                 else
                     return baseDesire * (1f - combinedFear * 0.5f);
             case "Sleep":
-                return baseDesire;
+                return baseDesire * getSleepModifier();
             case "Socialize":
                 if (primaryFear == MemoryType.BOREDOM)
                     return baseDesire * (1f + combinedFear);
@@ -207,7 +251,7 @@ public class LearningSystem {
     public float modifyDesireWithPositive(String desire, float baseDesire, String context) {
         if (!desire.equals("Explore")) return baseDesire;
         float positive = getPositiveBonus(context);
-        return baseDesire * (1f + positive);
+        return baseDesire * (1f + positive) * getActivityModifier();
     }
 
     public void inheritFrom(LearningSystem parent, float inheritanceRate) {
@@ -344,6 +388,7 @@ public class LearningSystem {
             posList.add(e);
         }
         tag.put("PositiveMemory", posList);
+        tag.putFloat("CircadianPhase", circadianPhase);
         return tag;
     }
 
@@ -371,16 +416,10 @@ public class LearningSystem {
             CompoundTag e = posList.getCompound(i);
             positiveMemory.put(e.getString("Context"), e.getFloat("Value"));
         }
+        circadianPhase = tag.getFloat("CircadianPhase");
     }
 
-    // ============ ГЕТТЕРЫ ============
     public Map<MemoryType, Map<String, Float>> getAllMemories() { return memories; }
     public Map<Item, Float> getAllItemFears() { return itemFear; }
     public Map<String, Float> getAllPositive() { return positiveMemory; }
-
-    // Для совместимости с новым кодом
-    public float getNovelty() {
-        // Этот метод должен быть реализован, но если нет – заглушка
-        return 0.5f;
-    }
 }

@@ -1,6 +1,7 @@
 package com.economymod.event;
 
 import com.economymod.EconomyMod;
+import com.economymod.creatures.VillagerBrainWrapper;
 import com.economymod.registry.ModAttachments;
 import com.economymod.entity.VillageGuardEntity;
 import com.economymod.entity.ai.*;
@@ -34,7 +35,6 @@ public class ServerEventHandler {
         if (event.getLevel().isClientSide()) return;
 
         if (event.getEntity() instanceof Villager villager) {
-            // Регистрируем цель активного сбора ресурсов с земли с наивысшим приоритетом 1
             villager.goalSelector.addGoal(1, new VillagerCollectItemsGoal(villager));
             villager.goalSelector.addGoal(2, new VillagerDepositTrashGoal(villager));
             villager.goalSelector.addGoal(3, new VillagerMiningGoal(villager));
@@ -43,6 +43,8 @@ public class ServerEventHandler {
             villager.goalSelector.addGoal(4, new VillagerCompostingGoal(villager));
             villager.goalSelector.addGoal(5, new VillagerP2PTradeGoal(villager));
             villager.goalSelector.addGoal(2, new VillagerFarmingGoal(villager));
+
+            VillagerBrainWrapper.getOrCreate(villager);
 
             EconomyMod.LOGGER.info("ЭКОНОМИКА ИИ: Все экономические цели успешно прописаны в мозг жителя [{}]!",
                     villager.getDisplayName().getString());
@@ -55,9 +57,10 @@ public class ServerEventHandler {
 
         if (event.getEntity() instanceof Villager villager && villager.isAlive()) {
             var att = villager.getData(ModAttachments.VILLAGER.get());
-            if (att != null) {
-                att.tick();
-            }
+            if (att != null) att.tick();
+
+            VillagerBrainWrapper wrapper = VillagerBrainWrapper.getOrCreate(villager);
+            wrapper.tick();
         }
     }
 

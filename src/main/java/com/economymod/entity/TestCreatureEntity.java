@@ -7,6 +7,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
@@ -31,29 +32,38 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
 
     private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
 
-    // Физиология
     private int hunger = 50;
     private int fatigue = 50;
     private int socialCooldown = 0;
     private int lastMoveTick = 0;
     private BlockPos lastPos = null;
 
-    // Размножение
     private int matingCooldown = 0;
     private UUID partnerUUID = null;
     private int pregnancyTicks = 0;
     private static final int MATING_COOLDOWN_MAX = 24000;
     private static final int PREGNANCY_DURATION = 12000;
 
-    // Мозг, биохимия, обучение, геном
     private CreatureBrain brain;
     private BiochemistrySystem biochemistry;
     private LearningSystem learningSystem;
     private Genome genome;
 
-    // Для отслеживания последнего предмета (для обучения страху к предмету)
     private Item lastSeenFoodItem = null;
     private int lastSeenFoodCooldown = 0;
+
+    // Оптимизация
+    private int brainTickCounter = 0;
+    private int sensorTickCounter = 0;
+    private static final int BRAIN_TICK_INTERVAL = 4;
+    private static final int SENSOR_TICK_INTERVAL = 10;
+    private float cachedHostileNearby = 0f;
+    private float cachedFoodNearby = 0f;
+    private float cachedSocialNearby = 0f;
+
+    // Подкрепление
+    private float lastReinforcement = 0f;
+    private int reinforcementCooldown = 0;
 
     public TestCreatureEntity(EntityType<? extends Mob> type, Level level) {
         super(type, level);
@@ -61,11 +71,10 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
             buildBiochemistry();
             buildBrain();
             this.learningSystem = new LearningSystem(this);
-            this.genome = new Genome(); // случайный геном
+            this.genome = new Genome();
         }
     }
 
-    // ==================== БИОХИМИЯ ====================
     private void buildBiochemistry() {
         biochemistry = new BiochemistrySystem();
         Chemical glucose = new Chemical("Glucose", 0.5f, 200);
@@ -120,7 +129,6 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
         return 0f;
     }
 
-    // ==================== МОЗГ ====================
     private void buildBrain() {
         brain = new CreatureBrain();
         SVRule emptyRule = new SVRule();
@@ -145,7 +153,12 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
         brain.addTract(new BrainTract(src, dst, sx, sy, sx2, sy2, dx, dy, dx2, dy2, 0, 0, false, rule));
     }
 
-    // ==================== AI ЦЕЛИ ====================
+    private void applyReinforcement(float reward) {
+        if (brain == null) return;
+        float learningRate = genome.learningRate;
+        brain.reinforce(reward, learningRate);
+    }
+
     @Override
     protected void registerGoals() {
         this.goalSelector.addGoal(1, new FleeMonsterGoal());
@@ -180,6 +193,7 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
                 if (dist > 0.01) { dx /= dist; dz /= dist; }
                 BlockPos runTo = BlockPos.containing(getX() + dx*15, getY(), getZ() + dz*15);
                 navigation.moveTo(runTo.getX(), runTo.getY(), runTo.getZ(), 1.2);
+                applyReinforcement(0.05f);
             }
         }
 
@@ -194,7 +208,6 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
             BrainLobe desireLobe = brain.getLobe(1);
             if (desireLobe == null) return false;
             float desireFight = desireLobe.getRegister(6, 0, 0);
-            // Учитываем генетическую агрессивность
             float threshold = 0.5f * (1f - genome.aggression);
             if (desireFight < threshold) return false;
             List<Monster> monsters = level().getEntitiesOfClass(Monster.class, getBoundingBox().inflate(8), e -> e.isAlive());
@@ -245,6 +258,7 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
                         learningSystem.learnItemFear(stack.getItem(), 0f);
                         learningSystem.learnPositive(learningSystem.getCurrentContext(), 0.2f);
                     }
+                    applyReinforcement(0.1f);
                     targetItem.discard();
                     level().playSound(null, blockPosition(), net.minecraft.sounds.SoundEvents.GENERIC_EAT, net.minecraft.sounds.SoundSource.NEUTRAL, 1.0f, 1.0f);
                 }
@@ -263,7 +277,6 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
             BrainLobe desireLobe = brain.getLobe(1);
             if (desireLobe == null) return false;
             float desireMate = desireLobe.getRegister(7, 0, 0);
-            // Учитываем генетическую потребность в социализации
             float threshold = 0.6f * (1f - genome.socialNeed);
             if (desireMate < threshold) return false;
             List<TestCreatureEntity> candidates = level().getEntitiesOfClass(TestCreatureEntity.class, getBoundingBox().inflate(8), e -> e != TestCreatureEntity.this && e.matingCooldown == 0);
@@ -297,6 +310,8 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
                     partner.learningSystem.mergeFrom(learningSystem, 0.5f);
                 }
 
+                applyReinforcement(0.15f);
+                partner.applyReinforcement(0.15f);
                 partner = null;
             }
         }
@@ -324,31 +339,22 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
             float desireMate = desireLobe.getRegister(7, 0, 0);
             float desireProtect = desireLobe.getRegister(8, 0, 0);
 
-            // Модификация желаний геномом
             desireExplore *= genome.basalCuriosity;
             desireFight *= (0.5f + genome.aggression);
             desireSocialize *= (0.5f + genome.socialNeed);
 
-            // Определяем основной тип страха
             LearningSystem.MemoryType primaryFear;
             float healthPercent = getHealth() / getMaxHealth();
-            if (healthPercent < 0.6f) {
-                primaryFear = LearningSystem.MemoryType.DAMAGE;
-            } else if (hunger > 70f) {
-                primaryFear = LearningSystem.MemoryType.HUNGER;
-            } else if (fatigue > 70f) {
-                primaryFear = LearningSystem.MemoryType.FATIGUE;
-            } else {
-                primaryFear = LearningSystem.MemoryType.BOREDOM;
-            }
+            if (healthPercent < 0.6f) primaryFear = LearningSystem.MemoryType.DAMAGE;
+            else if (hunger > 70f) primaryFear = LearningSystem.MemoryType.HUNGER;
+            else if (fatigue > 70f) primaryFear = LearningSystem.MemoryType.FATIGUE;
+            else primaryFear = LearningSystem.MemoryType.BOREDOM;
 
-            // Применяем страх и положительный опыт
             if (learningSystem != null) {
                 Item targetItem = (lastSeenFoodItem != null && lastSeenFoodCooldown > 0) ? lastSeenFoodItem : null;
                 desireExplore = learningSystem.modifyDesire("Explore", desireExplore, null, primaryFear);
                 desireFindFood = learningSystem.modifyDesire("FindFood", desireFindFood, targetItem, primaryFear);
                 desireSocialize = learningSystem.modifyDesire("Socialize", desireSocialize, null, primaryFear);
-
                 String context = learningSystem.getCurrentContext();
                 desireExplore = learningSystem.modifyDesireWithPositive("Explore", desireExplore, context);
             }
@@ -395,7 +401,6 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
             }
             if (socialCooldown > 0) socialCooldown--;
 
-            // Живое поведение: исследование даже при низком explore (случайное блуждание)
             if (navigation.isDone() && random.nextInt(40) == 0) {
                 BlockPos pos = blockPosition();
                 BlockPos target = pos.offset(random.nextInt(21)-10, 0, random.nextInt(21)-10);
@@ -403,7 +408,6 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
                 return;
             }
 
-            // Реакция на скуку (boredom) – прыжки и звуки
             if (learningSystem != null) {
                 float boredom = 1f - learningSystem.getNovelty();
                 if (boredom > 0.7f && random.nextInt(60) == 0) {
@@ -412,7 +416,6 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
                 }
             }
 
-            // Принудительное блуждание, если навигация не активна
             if (!navigation.isInProgress()) {
                 idleTicks++;
                 if (idleTicks > 60) {
@@ -428,7 +431,27 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
         }
     }
 
-    // ==================== СЕНСОРЫ ====================
+    private void updateCachedSensors() {
+        cachedHostileNearby = computeHostileNearby();
+        cachedFoodNearby = computeFoodNearby();
+        cachedSocialNearby = computeSocialNearby();
+    }
+
+    private float computeHostileNearby() {
+        List<Monster> monsters = level().getEntitiesOfClass(Monster.class, getBoundingBox().inflate(16), e -> e.isAlive());
+        return monsters.isEmpty() ? 0f : Math.min(1f, monsters.size() / 5f);
+    }
+
+    private float computeFoodNearby() {
+        List<ItemEntity> items = level().getEntitiesOfClass(ItemEntity.class, getBoundingBox().inflate(8), e -> e.isAlive() && isFoodItem(e.getItem()));
+        return items.isEmpty() ? 0f : Math.min(1f, items.size() / 3f);
+    }
+
+    private float computeSocialNearby() {
+        List<TestCreatureEntity> creatures = level().getEntitiesOfClass(TestCreatureEntity.class, getBoundingBox().inflate(10), e -> e != this && e.isAlive());
+        return creatures.isEmpty() ? 0f : Math.min(1f, creatures.size() / 3f);
+    }
+
     @Override
     public float getSensorValue(String sensorName) {
         switch (sensorName) {
@@ -436,22 +459,13 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
             case "Fatigue": return fatigue / 100.0f;
             case "Health": return getHealth() / getMaxHealth();
             case "Light": return level().getBrightness(LightLayer.BLOCK, blockPosition()) / 15.0f;
-            case "HostileNearby": {
-                List<Monster> monsters = level().getEntitiesOfClass(Monster.class, getBoundingBox().inflate(16), e -> e.isAlive());
-                return monsters.isEmpty() ? 0f : Math.min(1f, monsters.size() / 5f);
-            }
-            case "FoodNearby": {
-                List<ItemEntity> items = level().getEntitiesOfClass(ItemEntity.class, getBoundingBox().inflate(8), e -> e.isAlive() && isFoodItem(e.getItem()));
-                return items.isEmpty() ? 0f : Math.min(1f, items.size() / 3f);
-            }
+            case "HostileNearby": return cachedHostileNearby;
+            case "FoodNearby": return cachedFoodNearby;
             case "Curiosity": {
                 float base = (tickCount - lastMoveTick < 100) ? 0.7f : 0.3f;
                 return base * genome.basalCuriosity;
             }
-            case "SocialNearby": {
-                List<TestCreatureEntity> creatures = level().getEntitiesOfClass(TestCreatureEntity.class, getBoundingBox().inflate(10), e -> e != this && e.isAlive());
-                return creatures.isEmpty() ? 0f : Math.min(1f, creatures.size() / 3f);
-            }
+            case "SocialNearby": return cachedSocialNearby;
             case "Temperature": {
                 Biome biome = level().getBiome(blockPosition()).value();
                 float temp = (biome.getBaseTemperature() - 0.2f) / 1.0f;
@@ -476,7 +490,6 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
                 stack.is(Items.COOKED_BEEF) || stack.is(Items.CARROT) || stack.is(Items.POTATO);
     }
 
-    // ==================== ОБУЧЕНИЕ ====================
     private void updateLearning() {
         if (learningSystem == null) return;
         float distress = learningSystem.calculateDistress(
@@ -492,8 +505,6 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
             else if (hunger > 70f) type = LearningSystem.MemoryType.HUNGER;
             else if (fatigue > 70f) type = LearningSystem.MemoryType.FATIGUE;
             else type = LearningSystem.MemoryType.BOREDOM;
-
-            // Интенсивность страха с учётом генетической склонности
             float intensity = distress * genome.fearProne;
             learningSystem.learnNegative(type, context, intensity);
         }
@@ -511,17 +522,12 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
         learningSystem.tickForgetting();
     }
 
-    // ==================== ФИЗИОЛОГИЯ ====================
     private void updatePhysiology() {
-        // Расход энергии с учётом генетической эффективности
         if (navigation.isInProgress()) modifyChemical("ATP", -0.002f * genome.energyEfficiency);
         modifyChemical("ATP", -0.001f);
         float glucose = getChemicalLevel("Glucose");
-        if (glucose < 0.2f) {
-            hunger = Math.min(100, hunger + (int)(1 * genome.metabolismRate));
-        } else {
-            hunger = Math.max(0, hunger - (int)(1 * genome.metabolismRate));
-        }
+        if (glucose < 0.2f) hunger = Math.min(100, hunger + (int)(1 * genome.metabolismRate));
+        else hunger = Math.max(0, hunger - (int)(1 * genome.metabolismRate));
         if (navigation.isInProgress()) fatigue = Math.min(100, fatigue + 1);
         else fatigue = Math.max(0, fatigue - 1);
         if (glucose > 0.3f && getHealth() < getMaxHealth() && tickCount % 40 == 0) {
@@ -543,13 +549,7 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
                 if (learningSystem != null && baby.learningSystem != null) {
                     baby.learningSystem.inheritFrom(learningSystem, 0.7f);
                 }
-                // Наследование генома
-                if (this.genome != null && partnerUUID != null) {
-                    // partner не сохраняется, но можно найти по UUID, для простоты создаём новый геном
-                    baby.genome = new Genome(this.genome, new Genome()); // упрощённо
-                } else {
-                    baby.genome = new Genome();
-                }
+                baby.genome = new Genome(this.genome, new Genome());
                 serverLevel.addFreshEntity(baby);
                 LOGGER.info("New creature born!");
             }
@@ -580,23 +580,24 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
         sensorLobe.setRegister(10, 0, 0, getSensorValue("Glucose"));
     }
 
-    // ==================== ОСНОВНОЙ ТИК ====================
     @Override
     public void tick() {
         super.tick();
         if (!level().isClientSide) {
             updatePhysiology();
-            updateSensorsInBrain();
-            if (brain != null) brain.tick(this);
+            if (++sensorTickCounter >= SENSOR_TICK_INTERVAL) {
+                sensorTickCounter = 0;
+                updateCachedSensors();
+                updateSensorsInBrain();
+            }
+            if (++brainTickCounter >= BRAIN_TICK_INTERVAL) {
+                brainTickCounter = 0;
+                if (brain != null) brain.tick(this);
+            }
             updateLearning();
             updateCuriositySensor();
-
-            if (learningSystem != null) {
-                learningSystem.updateNovelty(blockPosition(), lastPos);
-            }
-
+            if (learningSystem != null) learningSystem.updateNovelty(blockPosition(), lastPos);
             if (biochemistry != null) biochemistry.tick(this);
-
             if (tickCount % 200 == 0 && brain != null && brain.getLobe(1) != null) {
                 BrainLobe desire = brain.getLobe(1);
                 String desiresStr = String.format(
@@ -609,7 +610,24 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
         }
     }
 
-    // ==================== СТАНДАРТНЫЕ МЕТОДЫ ====================
+    @Override
+    public boolean hurt(DamageSource source, float amount) {
+        boolean wasHurt = super.hurt(source, amount);
+        if (wasHurt && source.getEntity() instanceof Player) {
+            applyReinforcement(-0.1f);
+        }
+        return wasHurt;
+    }
+
+    @Override
+    public boolean causeFallDamage(float fallDistance, float damageMultiplier, net.minecraft.world.damagesource.DamageSource source) {
+        boolean wasHurt = super.causeFallDamage(fallDistance, damageMultiplier, source);
+        if (fallDistance > 2f) {
+            applyReinforcement(-0.05f);
+        }
+        return wasHurt;
+    }
+
     public static AttributeSupplier.Builder createAttributes() {
         return Mob.createMobAttributes()
                 .add(Attributes.MAX_HEALTH, 20.0D)
@@ -638,12 +656,8 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
         matingCooldown = tag.getInt("MatingCooldown");
         if (tag.contains("PartnerUUID")) partnerUUID = tag.getUUID("PartnerUUID");
         pregnancyTicks = tag.getInt("PregnancyTicks");
-        if (biochemistry != null && tag.contains("Biochemistry")) {
-            biochemistry.load(tag.getCompound("Biochemistry"));
-        }
-        if (learningSystem != null && tag.contains("LearningSystem")) {
-            learningSystem.load(tag.getCompound("LearningSystem"));
-        }
+        if (biochemistry != null && tag.contains("Biochemistry")) biochemistry.load(tag.getCompound("Biochemistry"));
+        if (learningSystem != null && tag.contains("LearningSystem")) learningSystem.load(tag.getCompound("LearningSystem"));
         if (tag.contains("Genome")) {
             genome = new Genome();
             genome.load(tag.getCompound("Genome"));
@@ -652,7 +666,6 @@ public class TestCreatureEntity extends Mob implements SensorProvider {
         }
     }
 
-    // ==================== ГЕТТЕРЫ ====================
     public BlockPos getLastPos() { return lastPos; }
     public LearningSystem getLearningSystem() { return learningSystem; }
     public CreatureBrain getCreatureBrain() { return brain; }

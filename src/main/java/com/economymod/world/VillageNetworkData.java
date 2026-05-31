@@ -39,8 +39,6 @@ public class VillageNetworkData extends SavedData {
 
     public VillageInfo getVillageInfo(BlockPos pos) {
         if (pos == null) return null;
-
-        // Математическое объединение деревень в радиусе 80 блоков
         for (Map.Entry<BlockPos, VillageInfo> entry : villages.entrySet()) {
             if (entry.getKey().distSqr(pos) < 6400.0) {
                 return entry.getValue();
@@ -49,17 +47,9 @@ public class VillageNetworkData extends SavedData {
         return villages.computeIfAbsent(pos, VillageInfo::new);
     }
 
-    public Collection<VillageInfo> getAllVillages() {
-        return villages.values();
-    }
-
-    public Set<BlockPos> getAllVillagePositions() {
-        return villages.keySet();
-    }
-
-    public void clearAllVillages() {
-        this.villages.clear();
-    }
+    public Collection<VillageInfo> getAllVillages() { return villages.values(); }
+    public Set<BlockPos> getAllVillagePositions() { return villages.keySet(); }
+    public void clearAllVillages() { this.villages.clear(); }
 
     public static class VillageInfo {
         private final BlockPos center;
@@ -81,9 +71,7 @@ public class VillageNetworkData extends SavedData {
             return items;
         }
 
-        public void recordTrade(Item item, int amount) {
-            dailyTradeVolume.merge(item, amount, Integer::sum);
-        }
+        public void recordTrade(Item item, int amount) { dailyTradeVolume.merge(item, amount, Integer::sum); }
 
         public void updateDailyEconomy() {
             dailyTradeVolume.forEach((item, volume) -> {
@@ -91,36 +79,32 @@ public class VillageNetworkData extends SavedData {
                 if (volume > 10) {
                     priceAdjustments.put(item, Math.min(3.0, currentAdj * 1.15));
                 } else if (volume < 2) {
-                    if (currentAdj > 1.0) {
-                        priceAdjustments.put(item, Math.max(1.0, currentAdj * 0.95));
-                    } else if (currentAdj < 1.0) {
-                        priceAdjustments.put(item, Math.min(1.0, currentAdj * 1.05));
-                    }
+                    if (currentAdj > 1.0) priceAdjustments.put(item, Math.max(1.0, currentAdj * 0.95));
+                    else if (currentAdj < 1.0) priceAdjustments.put(item, Math.min(1.0, currentAdj * 1.05));
                 }
             });
-
             priceAdjustments.keySet().forEach(item -> {
                 if (!dailyTradeVolume.containsKey(item)) {
                     double currentAdj = priceAdjustments.get(item);
-                    if (currentAdj > 1.0) {
-                        priceAdjustments.put(item, Math.max(1.0, currentAdj * 0.98));
-                    } else if (currentAdj < 1.0) {
-                        priceAdjustments.put(item, Math.min(1.0, currentAdj * 1.02));
-                    }
+                    if (currentAdj > 1.0) priceAdjustments.put(item, Math.max(1.0, currentAdj * 0.98));
+                    else if (currentAdj < 1.0) priceAdjustments.put(item, Math.min(1.0, currentAdj * 1.02));
                 }
             });
-
             dailyTradeVolume.clear();
         }
 
         public double getInflationRate() { return inflationRate; }
         public void setInflationRate(double rate) { this.inflationRate = Mth.clamp(rate, 0.2, 5.0); }
 
+        public void applyDistressInflation(double distress) {
+            double inflationFactor = 1.0 + distress * 0.5;
+            this.inflationRate = Mth.clamp(inflationFactor, 0.2, 5.0);
+        }
+
         public double getSupplyDemandFactor(Item item) {
             double demand = demandFactors.getOrDefault(item, 0.0);
             double supply = supplyFactors.getOrDefault(item, 0.0);
             double adj = priceAdjustments.getOrDefault(item, 1.0);
-
             double marketFactor = (demand + 5.0) / (supply + 5.0);
             return Mth.clamp(marketFactor * adj, 0.15, 6.0);
         }
@@ -154,16 +138,13 @@ public class VillageNetworkData extends SavedData {
         private void recalcInflation() {
             double baseBasketValue = 0.0;
             double currentBasketValue = 0.0;
-
             for (Map.Entry<Item, Double> entry : BASKET_ITEMS.entrySet()) {
                 Item item = entry.getKey();
                 double weight = entry.getValue();
                 double basePrice = com.economymod.economy.PriceCalculator.getRawPrice(item);
-
                 baseBasketValue += basePrice * weight;
                 currentBasketValue += basePrice * getSupplyDemandFactor(item) * weight;
             }
-
             if (baseBasketValue > 0) {
                 double targetInflation = currentBasketValue / baseBasketValue;
                 this.inflationRate = Mth.lerp(0.05, this.inflationRate, targetInflation);
@@ -175,38 +156,31 @@ public class VillageNetworkData extends SavedData {
             CompoundTag tag = new CompoundTag();
             if (center != null) tag.putLong("Center", center.asLong());
             tag.putDouble("InflationRate", inflationRate);
-
             CompoundTag dem = new CompoundTag();
             demandFactors.forEach((i, v) -> dem.putDouble(BuiltInRegistries.ITEM.getKey(i).toString(), v));
             tag.put("DemandFactors", dem);
-
             CompoundTag sup = new CompoundTag();
             supplyFactors.forEach((i, v) -> sup.putDouble(BuiltInRegistries.ITEM.getKey(i).toString(), v));
             tag.put("SupplyFactors", sup);
-
             CompoundTag adj = new CompoundTag();
             priceAdjustments.forEach((i, v) -> adj.putDouble(BuiltInRegistries.ITEM.getKey(i).toString(), v));
             tag.put("PriceAdjustments", adj);
-
             return tag;
         }
 
         public static VillageInfo fromNBT(CompoundTag tag) {
             VillageInfo info = new VillageInfo(BlockPos.of(tag.getLong("Center")));
             info.inflationRate = tag.contains("InflationRate") ? tag.getDouble("InflationRate") : 1.0;
-
             CompoundTag dem = tag.getCompound("DemandFactors");
             for (String k : dem.getAllKeys()) {
                 Item i = BuiltInRegistries.ITEM.get(ResourceLocation.parse(k));
                 if (i != Items.AIR) info.demandFactors.put(i, dem.getDouble(k));
             }
-
             CompoundTag sup = tag.getCompound("SupplyFactors");
             for (String k : sup.getAllKeys()) {
                 Item i = BuiltInRegistries.ITEM.get(ResourceLocation.parse(k));
                 if (i != Items.AIR) info.supplyFactors.put(i, sup.getDouble(k));
             }
-
             if (tag.contains("PriceAdjustments")) {
                 CompoundTag adj = tag.getCompound("PriceAdjustments");
                 for (String k : adj.getAllKeys()) {
@@ -214,7 +188,6 @@ public class VillageNetworkData extends SavedData {
                     if (i != Items.AIR) info.priceAdjustments.put(i, adj.getDouble(k));
                 }
             }
-
             return info;
         }
     }
