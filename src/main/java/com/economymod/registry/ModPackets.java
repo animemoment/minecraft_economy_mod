@@ -83,5 +83,22 @@ public class ModPackets {
                 ClientboundSellContainerSyncPacket.STREAM_CODEC,
                 ClientboundSellContainerSyncPacket::handleClient
         );
+
+        registrar.playToClient(
+                ClientboundZoneSyncPacket.TYPE,
+                ClientboundZoneSyncPacket.STREAM_CODEC,
+                ClientboundZoneSyncPacket::handleClient
+        );
+
+        registrar.playToClient(
+                ClientboundVillagerStatsPacket.TYPE,
+                ClientboundVillagerStatsPacket.STREAM_CODEC,
+                ClientboundVillagerStatsPacket::handleClient
+        );
+        registrar.playToServer(
+                ServerboundSetSlotPricePacket.TYPE,
+                ServerboundSetSlotPricePacket.STREAM_CODEC,
+                ServerboundSetSlotPricePacket::handleServer
+        );
     }
 }

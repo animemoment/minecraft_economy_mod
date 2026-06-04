@@ -1,6 +1,7 @@
 package com.economymod.world;
 
 import com.economymod.registry.ModAttachments;
+import com.economymod.economy.PriceCalculator;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -71,7 +72,11 @@ public class VillageNetworkData extends SavedData {
             return items;
         }
 
-        public void recordTrade(Item item, int amount) { dailyTradeVolume.merge(item, amount, Integer::sum); }
+        public void recordTrade(Item item, int amount) {
+            dailyTradeVolume.merge(item, amount, Integer::sum);
+            // Инвалидация кэша: сбрасываем цену этого товара, так как произошла сделка и изменился спрос!
+            PriceCalculator.invalidateCache(this.center, item);
+        }
 
         public void updateDailyEconomy() {
             dailyTradeVolume.forEach((item, volume) -> {
@@ -91,6 +96,9 @@ public class VillageNetworkData extends SavedData {
                 }
             });
             dailyTradeVolume.clear();
+
+            // Инвалидация кэша: сбрасываем цены всех товаров деревни из-за ежеминутного изменения инфляции!
+            PriceCalculator.invalidateCache(this.center, null);
         }
 
         public double getInflationRate() { return inflationRate; }
@@ -133,6 +141,9 @@ public class VillageNetworkData extends SavedData {
             totalSupply.forEach((item, count) -> supplyFactors.put(item, (double) count));
 
             recalcInflation();
+
+            // Инвалидация кэша: сбрасываем цены всей деревни при полном перерасчете факторов
+            PriceCalculator.invalidateCache(this.center, null);
         }
 
         private void recalcInflation() {

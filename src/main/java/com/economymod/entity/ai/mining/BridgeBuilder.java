@@ -5,8 +5,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 
 public class BridgeBuilder {
 
@@ -17,11 +18,17 @@ public class BridgeBuilder {
             ItemStack stack = inv.getItem(i);
             if (stack.isEmpty()) continue;
 
-            net.minecraft.world.level.block.Block block = net.minecraft.world.level.block.Block.byItem(stack.getItem());
+            Block block = Block.byItem(stack.getItem());
             if (block != Blocks.AIR) {
                 BlockState defaultState = block.defaultBlockState();
-                // Фильтруем технические/рабочие блоки, чтобы не строить мосты из верстаков или сундуков
-                if (defaultState.isSolid() && block != Blocks.CHEST && block != Blocks.CRAFTING_TABLE && block != Blocks.FURNACE) {
+
+                // ИСПРАВЛЕНО: Защитный фильтр полностью исключает двери, кровати и высокие растения из строительных блоков жителей!
+                boolean isDoubleBlock = block instanceof DoorBlock ||
+                        block instanceof BedBlock ||
+                        block instanceof DoublePlantBlock ||
+                        defaultState.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF);
+
+                if (defaultState.isSolid() && !isDoubleBlock && block != Blocks.CHEST && block != Blocks.CRAFTING_TABLE && block != Blocks.FURNACE) {
                     return stack;
                 }
             }
@@ -31,7 +38,7 @@ public class BridgeBuilder {
 
     public static void performPlaceBlock(Level level, BlockPos targetBlockPos, ItemStack block) {
         if (targetBlockPos != null && !block.isEmpty()) {
-            net.minecraft.world.level.block.Block b = net.minecraft.world.level.block.Block.byItem(block.getItem());
+            Block b = Block.byItem(block.getItem());
             BlockState placeState = b.defaultBlockState();
 
             level.setBlockAndUpdate(targetBlockPos, placeState);

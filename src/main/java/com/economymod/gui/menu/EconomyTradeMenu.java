@@ -8,12 +8,14 @@ import com.economymod.network.ClientboundBalanceSyncPacket;
 import com.economymod.network.ClientboundFullPriceTablePacket;
 import com.economymod.network.ClientboundOwnerInventorySyncPacket;
 import com.economymod.network.ClientboundPriceUpdatePacket;
+import com.economymod.network.ClientboundVillagerStatsPacket;
 import com.economymod.registry.ModMenus;
-import com.economymod.world.VillageNetworkData; // Добавлено
+import com.economymod.world.VillageNetworkData;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerLevel; // Добавлено
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -41,9 +43,39 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
     private final double[] prices;
     private double clientBalance;
     private double clientBudget;
-    private final VillageNetworkData.VillageInfo villageInfo; // ИЗМЕНЕНО: Храним информацию о деревне
+    private final VillageNetworkData.VillageInfo villageInfo;
     public final SimpleContainer buyContainer = new SimpleContainer(9);
     public final SimpleContainer sellContainer = new SimpleContainer(9);
+
+    // Массивы для хранения предложенных игроком цен (0.0 по умолчанию означает расчет по рынку)
+    private final double[] buyCustomPrices = new double[9];
+    private final double[] sellCustomPrices = new double[9];
+
+    public void setBuyCustomPrice(int slotIndex, double price) {
+        if (slotIndex >= 0 && slotIndex < 9) {
+            this.buyCustomPrices[slotIndex] = Math.max(0.0, price);
+        }
+    }
+
+    public void setSellCustomPrice(int slotIndex, double price) {
+        if (slotIndex >= 0 && slotIndex < 9) {
+            this.sellCustomPrices[slotIndex] = Math.max(0.0, price);
+        }
+    }
+
+    public double getBuyCustomPrice(int slotIndex) {
+        if (slotIndex >= 0 && slotIndex < 9) {
+            return this.buyCustomPrices[slotIndex];
+        }
+        return 0.0;
+    }
+
+    public double getSellCustomPrice(int slotIndex) {
+        if (slotIndex >= 0 && slotIndex < 9) {
+            return this.sellCustomPrices[slotIndex];
+        }
+        return 0.0;
+    }
 
     public EconomyTradeMenu(int id, Inventory playerInv) {
         this(id, playerInv, (IEconomicActor) null);
@@ -59,7 +91,6 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
         this.ownerInventory = owner != null ? owner.getInventory() : new SimpleContainer(36);
         this.prices = new double[OWNER_SLOTS];
 
-        // ИЗМЕНЕНО: Получаем данные о деревне на стороне сервера
         if (playerInv.player.level() instanceof ServerLevel sl && owner != null && owner.getPosition() != null) {
             this.villageInfo = VillageNetworkData.get(sl).getVillageInfo(owner.getPosition());
         } else {
@@ -95,20 +126,19 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
             }
 
         // SellContainer (81..89)
+        // SellContainer (81..89)
         for (int r = 0; r < 3; r++)
             for (int c = 0; c < 3; c++) {
                 int slot = c + r * 3;
                 this.addSlot(new Slot(sellContainer, slot, 196 + c * 18, 93 + r * 18) {
                     @Override public boolean mayPlace(ItemStack stack) {
-                        // ИСПРАВЛЕНО: передаем информацию о деревне
-                        return PriceCalculator.getSellPrice(stack, villageInfo) > 0;
+                        return true;
                     }
                 });
             }
 
         refreshPrices();
 
-        // Синхронизация при открытии (сервер)
         if (owner != null && playerInv.player instanceof ServerPlayer sp) {
             List<ItemStack> items = new ArrayList<>();
             for (int i = 0; i < OWNER_SLOTS; i++) items.add(ownerInventory.getItem(i).copy());
@@ -119,7 +149,6 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
             this.clientBalance = playerBalance;
             this.clientBudget = budget;
 
-            // Отправка цен на слоты
             Map<Integer, Double> pricesMap = new HashMap<>();
             for (int i = 0; i < OWNER_SLOTS; i++) {
                 if (!ownerInventory.getItem(i).isEmpty()) {
@@ -128,19 +157,15 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
             }
             PacketDistributor.sendToPlayer(sp, new ClientboundPriceUpdatePacket(pricesMap));
 
-            // ИСПРАВЛЕНО: Отправка ДИНАМИЧЕСКИХ цен этой деревни клиенту вместо базовых
             if (PriceCalculator.getPriceTable() != null) {
                 Map<String, Double> dynamicPriceTable = new HashMap<>();
                 PriceCalculator.getPriceTable().getAllPrices().forEach((item, price) -> {
-                    // Рассчитываем динамическую базовую цену для этой деревни
                     double dynamicBase = PriceCalculator.calculateDynamicPrice(new ItemStack(item), villageInfo);
                     ResourceLocation key = BuiltInRegistries.ITEM.getKey(item);
                     dynamicPriceTable.put(key.toString(), dynamicBase);
                 });
                 PacketDistributor.sendToPlayer(sp, new ClientboundFullPriceTablePacket(dynamicPriceTable));
             }
-
-            EconomyMod.LOGGER.info("Sent initial sync for trader: inventory={}, prices={}", items.size(), pricesMap.size());
         }
     }
 
@@ -149,8 +174,6 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
             ItemStack st = ownerInventory.getItem(i);
             if (!st.isEmpty()) {
                 prices[i] = PriceCalculator.getBuyPrice(st, villageInfo);
-                // ЛОГ ДЛЯ ДЕБАГА: Смотрим, какую цену рассчитал сервер
-                EconomyMod.LOGGER.info("ЭКОНОМИКА СЕРВЕР: Слот {}: {} -> рассчитанная цена = {}", i, st.getItem().getDescriptionId(), prices[i]);
             } else {
                 prices[i] = 0;
             }
@@ -159,22 +182,28 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
 
     public double getPrice(int slot) { return prices[slot]; }
 
-    // ИСПРАВЛЕНО: использует villageInfo
     public double getTotalBuyCost() {
         double total = 0;
         for (int i = 0; i < 9; i++) {
             ItemStack stack = buyContainer.getItem(i);
-            if (!stack.isEmpty()) total += PriceCalculator.getBuyPrice(stack, villageInfo) * stack.getCount();
+            if (!stack.isEmpty()) {
+                double customPrice = getBuyCustomPrice(i);
+                double finalPricePerItem = (customPrice == 0.0) ? PriceCalculator.getBuyPrice(stack, villageInfo) : customPrice;
+                total += finalPricePerItem * stack.getCount();
+            }
         }
         return total;
     }
 
-    // ИСПРАВЛЕНО: использует villageInfo
     public double getTotalSellValue() {
         double total = 0;
         for (int i = 0; i < 9; i++) {
             ItemStack stack = sellContainer.getItem(i);
-            if (!stack.isEmpty()) total += PriceCalculator.getSellPrice(stack, villageInfo) * stack.getCount();
+            if (!stack.isEmpty()) {
+                double customPrice = getSellCustomPrice(i);
+                double finalPricePerItem = (customPrice == 0.0) ? PriceCalculator.getSellPrice(stack, villageInfo) : customPrice;
+                total += finalPricePerItem * stack.getCount();
+            }
         }
         return total;
     }
@@ -215,7 +244,6 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
     public void removed(Player player) {
         super.removed(player);
 
-        // Возвращаем предметы из корзины продажи игроку
         for (int i = 0; i < 9; i++) {
             ItemStack stack = sellContainer.getItem(i);
             if (!stack.isEmpty()) {
@@ -224,14 +252,11 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
             }
         }
 
-        // Возвращаем предметы из корзины покупки владельцу (торговцу)
         for (int i = 0; i < 9; i++) {
             ItemStack stack = buyContainer.getItem(i);
             if (!stack.isEmpty() && ownerActor != null) {
-                // Добавляем предмет обратно владельцу
                 ItemStack remainder = ownerActor.getInventory().addItem(stack.copy());
                 if (!remainder.isEmpty()) {
-                    // Если не влезло полностью, дропаем на землю
                     if (ownerActor.getPosition() != null && player.level() instanceof ServerLevel) {
                         player.level().addFreshEntity(new net.minecraft.world.entity.item.ItemEntity(
                                 player.level(),
@@ -270,13 +295,13 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
         return ItemStack.EMPTY;
     }
 
-    private final java.util.concurrent.atomic.AtomicBoolean transactionLock = new java.util.concurrent.atomic.AtomicBoolean(false); // ← ДОБАВЛЕНО
+    private final java.util.concurrent.atomic.AtomicBoolean transactionLock = new java.util.concurrent.atomic.AtomicBoolean(false);
 
-    public boolean tryLockTransaction() { // ← ДОБАВЛЕНО
+    public boolean tryLockTransaction() {
         return transactionLock.compareAndSet(false, true);
     }
 
-    public void unlockTransaction() { // ← ДОБАВЛЕНО
+    public void unlockTransaction() {
         transactionLock.set(false);
     }
 
@@ -286,5 +311,60 @@ public class EconomyTradeMenu extends AbstractContainerMenu {
         int index = slot.index;
         if (index < OWNER_SLOTS || (index >= BUY_START && index <= BUY_END)) return false;
         return super.canTakeItemForPickAll(stack, slot);
+    }
+
+    /**
+     * ИСПРАВЛЕНО: broadcastChanges() на сервере считывает ИИ-параметры жителя и шлет пакет статистики на клиент
+     */
+    @Override
+    public void broadcastChanges() {
+        super.broadcastChanges();
+
+        if (ownerActor != null && playerActor.getEntity() instanceof ServerPlayer sp) {
+            float health = 1.0f;
+            float hunger = 1.0f;
+            float fatigue = 0.0f;
+            float distress = 0.0f;
+            String emotion = "Спокоен";
+
+            LivingEntity entity = ownerActor.getEntity();
+            if (entity != null) {
+                health = entity.getHealth() / entity.getMaxHealth();
+            }
+
+            if (ownerActor instanceof com.economymod.attachment.VillagerAttachment va) {
+                hunger = (float) va.getHunger() / 20.0f;
+            }
+
+            if (entity instanceof net.minecraft.world.entity.npc.Villager v) {
+                com.economymod.creatures.VillagerBrainWrapper brain = com.economymod.creatures.VillagerBrainWrapper.get(v);
+                if (brain != null) {
+                    fatigue = brain.getSensorValue("Fatigue");
+                    distress = brain.getLearningSystem().calculateDistress(health, 1.0f - hunger, fatigue);
+                    emotion = brain.getStrongestDesire();
+                    if (emotion == null) {
+                        emotion = "Спокоен";
+                    } else {
+                        emotion = formatEmotionName(emotion);
+                    }
+                }
+            }
+
+            // Отсылаем пакет статистики
+            PacketDistributor.sendToPlayer(sp,
+                    new ClientboundVillagerStatsPacket(health, hunger, fatigue, distress, emotion));
+        }
+    }
+
+    private String formatEmotionName(String raw) {
+        switch (raw) {
+            case "EAT": return "Проголодался";
+            case "SLEEP": return "Хочет спать";
+            case "TRADE": return "Готов торговать";
+            case "RUN_AWAY": return "Напуган!";
+            case "EXPLORE": return "Любопытен";
+            case "SOCIALIZE": return "Общителен";
+            default: return "Спокоен";
+        }
     }
 }

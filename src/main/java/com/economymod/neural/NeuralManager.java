@@ -1,7 +1,6 @@
 package com.economymod.neural;
 
 import com.economymod.EconomyMod;
-import com.economymod.entity.TestCreatureEntity;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -23,7 +22,7 @@ public class NeuralManager {
     private static final Map<UUID, NeuralNetwork> networks = new HashMap<>();
     private static boolean isActive = false;
 
-    // Универсальный метод для любой живой сущности
+    // Универсальный метод получения/создания сети для любого жителя
     public static NeuralNetwork getOrCreate(LivingEntity entity) {
         UUID id = entity.getUUID();
         if (!networks.containsKey(id)) {
@@ -52,18 +51,10 @@ public class NeuralManager {
         AABB worldArea = new AABB(level.getWorldBorder().getMinX(), -64, level.getWorldBorder().getMinZ(),
                 level.getWorldBorder().getMaxX(), 320, level.getWorldBorder().getMaxZ());
 
-        // Обрабатываем ТОЛЬКО TestCreatureEntity (для производительности)
-        for (TestCreatureEntity creature : level.getEntitiesOfClass(TestCreatureEntity.class, worldArea, Entity::isAlive)) {
-            NeuralNetwork net = getOrCreate(creature);
+        // Обрабатываем нейросети жителей
+        for (Villager villager : level.getEntitiesOfClass(Villager.class, worldArea, Entity::isAlive)) {
+            NeuralNetwork net = getOrCreate(villager);
             if (net != null) net.tick();
-        }
-
-        // Если явно включена обработка жителей (по умолчанию выключена, чтобы не лагало)
-        if (NeuralConfig.PROCESS_VILLAGERS) {
-            for (Villager villager : level.getEntitiesOfClass(Villager.class, worldArea, Entity::isAlive)) {
-                NeuralNetwork net = getOrCreate(villager);
-                net.tick();
-            }
         }
     }
 
@@ -71,11 +62,9 @@ public class NeuralManager {
     public static void onEntityJoin(EntityJoinLevelEvent event) {
         if (!NeuralConfig.ENABLED) return;
         if (event.getLevel().isClientSide()) return;
-        // Создаём сеть только для TestCreatureEntity (для жителей — только если PROCESS_VILLAGERS = true)
-        if (event.getEntity() instanceof TestCreatureEntity creature) {
-            getOrCreate(creature);
-        } else if (event.getEntity() instanceof Villager && NeuralConfig.PROCESS_VILLAGERS) {
-            getOrCreate((Villager) event.getEntity());
+
+        if (event.getEntity() instanceof Villager villager) {
+            getOrCreate(villager);
         }
     }
 
@@ -90,7 +79,7 @@ public class NeuralManager {
         EconomyMod.LOGGER.info("Neural system " + (NeuralConfig.ENABLED ? "enabled" : "disabled"));
     }
 
-    // Универсальный getStatus для любой сущности с нейросетью
+    // Статус нейросети для вывода в консоль / чат
     public static String getStatus(LivingEntity entity) {
         NeuralNetwork net = networks.get(entity.getUUID());
         if (net == null) return "No network";

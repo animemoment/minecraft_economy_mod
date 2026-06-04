@@ -19,7 +19,9 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class VillagerFarmingGoal extends Goal {
     private final Villager villager;
@@ -30,21 +32,19 @@ public class VillagerFarmingGoal extends Goal {
     private int workCooldown = 0;
     private int useBoneMealCooldown = 0;
     private boolean isPlacingWater = false;
-    private long lastLogTick = 0;
     private static final int SEARCH_RADIUS = 20;
+
+    // Системные переменные детектора застреваний и блеклиста грядок
+    private final Map<BlockPos, Integer> failCount = new HashMap<>();
+    private final Map<BlockPos, Long> blockedUntil = new HashMap<>();
+    private static final int MAX_FAILS = 3;
+    private static final long BLOCK_DURATION_TICKS = 600; // Черный список на 30 секунд
+    private long targetStartTime = 0;
+    private BlockPos lastTargetPos = null;
 
     public VillagerFarmingGoal(Villager villager) {
         this.villager = villager;
         this.setFlags(EnumSet.of(Goal.Flag.MOVE, Goal.Flag.LOOK));
-    }
-
-    private boolean shouldLog() {
-        long now = villager.level().getGameTime();
-        if (now - lastLogTick > 200) {
-            lastLogTick = now;
-            return true;
-        }
-        return false;
     }
 
     @Override
@@ -59,10 +59,14 @@ public class VillagerFarmingGoal extends Goal {
         attachment = villager.getData(ModAttachments.VILLAGER.get());
         if (attachment == null) return false;
 
-        // 1. Созревшие культуры
-        BlockPos mature = findMatureCrop();
+        long now = villager.level().getGameTime();
+
+        // 1. Очистка устаревшего черного списка грядок
+        blockedUntil.entrySet().removeIf(entry -> entry.getValue() < now);
+
+        // 2. Созревшие культуры
+        BlockPos mature = findMatureCrop(now);
         if (mature != null) {
-            if (shouldLog()) EconomyMod.LOGGER.info("[FARMING] {} нашел созревшую культуру {}", villager.getName().getString(), mature.toShortString());
             targetCropPos = mature;
             targetSoilPos = null;
             targetWaterPos = null;
@@ -71,25 +75,22 @@ public class VillagerFarmingGoal extends Goal {
 
         ItemStack hoe = findHoe();
         if (hoe.isEmpty()) {
-            if (shouldLog()) EconomyMod.LOGGER.debug("[FARMING] {} нет мотыги", villager.getName().getString());
             workCooldown = 20;
             return false;
         }
 
-        // 2. Удобрение
+        // 3. Удобрение костной мукой
         if (hasBoneMeal() && useBoneMealCooldown == 0) {
-            BlockPos unripe = findUnripeCrop();
+            BlockPos unripe = findUnripeCrop(now);
             if (unripe != null) {
-                if (shouldLog()) EconomyMod.LOGGER.info("[FARMING] {} удобряет культуру {}", villager.getName().getString(), unripe.toShortString());
                 targetCropPos = unripe;
                 return true;
             }
         }
 
-        // 3. Сухие грядки
-        BlockPos dryFarmland = findDryFarmland();
+        // 4. Сухие грядки (полив водой)
+        BlockPos dryFarmland = findDryFarmland(now);
         if (dryFarmland != null && hasWaterBucket()) {
-            if (shouldLog()) EconomyMod.LOGGER.info("[FARMING] {} нашел сухую грядку {}", villager.getName().getString(), dryFarmland.toShortString());
             targetWaterPos = dryFarmland;
             isPlacingWater = true;
             targetCropPos = null;
@@ -97,68 +98,34 @@ public class VillagerFarmingGoal extends Goal {
             return true;
         }
 
-        // 4. Пустые грядки для посадки
-        BlockPos emptyFarmland = findEmptyFarmland();
+        // 5. Пустые грядки для посадки
+        BlockPos emptyFarmland = findEmptyFarmland(now);
         ItemStack seeds = findSeeds();
-        if (emptyFarmland != null) {
-            if (seeds.isEmpty()) {
-                if (shouldLog()) EconomyMod.LOGGER.debug("[FARMING] {} нет семян для посадки", villager.getName().getString());
-            } else {
-                if (shouldLog()) EconomyMod.LOGGER.info("[FARMING] {} нашел пустую грядку для посадки {}", villager.getName().getString(), emptyFarmland.toShortString());
-                targetSoilPos = emptyFarmland;
-                targetCropPos = null;
-                targetWaterPos = null;
-                return true;
-            }
+        if (emptyFarmland != null && !seeds.isEmpty()) {
+            targetSoilPos = emptyFarmland;
+            targetCropPos = null;
+            targetWaterPos = null;
+            return true;
         }
 
-        // 5. Пахота земли
-        BlockPos tillable = findTillableDirt();
+        // 6. Пахота земли мотыгой
+        BlockPos tillable = findTillableDirt(now);
         if (tillable != null) {
-            if (shouldLog()) EconomyMod.LOGGER.info("[FARMING] {} нашел землю для пахоты {}", villager.getName().getString(), tillable.toShortString());
             targetSoilPos = tillable;
             targetCropPos = null;
             targetWaterPos = null;
             return true;
         }
 
-        if (shouldLog()) {
-            logSearchStatus();
-            EconomyMod.LOGGER.debug("[FARMING] {} нет целей", villager.getName().getString());
-        }
         workCooldown = 20;
         return false;
     }
 
-    private void logSearchStatus() {
-        BlockPos center = villager.blockPosition();
-        int matureCount = 0, unripeCount = 0, emptyFarmlandCount = 0, tillableCount = 0, dryFarmlandCount = 0;
-        for (int dx = -SEARCH_RADIUS; dx <= SEARCH_RADIUS; dx++) {
-            for (int dz = -SEARCH_RADIUS; dz <= SEARCH_RADIUS; dz++) {
-                for (int dy = -4; dy <= 4; dy++) {
-                    BlockPos pos = center.offset(dx, dy, dz);
-                    BlockState state = villager.level().getBlockState(pos);
-                    if (isMatureCrop(state)) matureCount++;
-                    if (isCrop(state) && !isMatureCrop(state)) unripeCount++;
-                    if (state.getBlock() == Blocks.FARMLAND) {
-                        BlockPos above = pos.above();
-                        if (villager.level().getBlockState(above).isAir()) emptyFarmlandCount++;
-                        int moisture = state.getValue(FarmBlock.MOISTURE);
-                        if (moisture == 0 && !isNearWater(pos)) dryFarmlandCount++;
-                    }
-                    if ((state.getBlock() == Blocks.DIRT || state.getBlock() == Blocks.GRASS_BLOCK || state.getBlock() == Blocks.COARSE_DIRT) &&
-                            villager.level().getBlockState(pos.above()).isAir()) {
-                        tillableCount++;
-                    }
-                }
-            }
-        }
-        EconomyMod.LOGGER.info("[FARMING] {} статус: зрелых={}, незрелых={}, пустых грядок={}, земли для пахоты={}, сухих грядок={}",
-                villager.getName().getString(), matureCount, unripeCount, emptyFarmlandCount, tillableCount, dryFarmlandCount);
-    }
-
     @Override
     public void start() {
+        this.lastTargetPos = null;
+        this.targetStartTime = villager.level().getGameTime();
+
         if (targetCropPos != null) {
             villager.getNavigation().moveTo(targetCropPos.getX() + 0.5, targetCropPos.getY(), targetCropPos.getZ() + 0.5, 0.7);
         } else if (targetSoilPos != null) {
@@ -170,6 +137,32 @@ public class VillagerFarmingGoal extends Goal {
 
     @Override
     public void tick() {
+        long now = villager.level().getGameTime();
+        BlockPos currentTarget = targetCropPos != null ? targetCropPos : (targetSoilPos != null ? targetSoilPos : targetWaterPos);
+
+        // ИСПРАВЛЕНО: Таймаут пути увеличен до 30 секунд (600 тиков) во избежание ложных блокировок грядок
+        if (currentTarget != null) {
+            if (lastTargetPos == null || !lastTargetPos.equals(currentTarget)) {
+                lastTargetPos = currentTarget.immutable();
+                targetStartTime = now;
+            } else {
+                long elapsed = now - targetStartTime;
+                if (elapsed > 600) { // Даем фермеру честные 30 секунд на сложный обход заборчиков
+                    int fails = failCount.getOrDefault(currentTarget, 0) + 1;
+                    failCount.put(currentTarget, fails);
+                    if (fails >= MAX_FAILS) {
+                        blockedUntil.put(currentTarget, now + BLOCK_DURATION_TICKS);
+                        EconomyMod.LOGGER.debug("[FARMING] Грядка {} заблокирована в черном списке фермера на 30 секунд.", currentTarget.toShortString());
+                    }
+                    stop(); // Сброс цели
+                    workCooldown = 40;
+                    return;
+                }
+            }
+        } else {
+            lastTargetPos = null;
+        }
+
         if (targetCropPos != null) handleCrop();
         else if (targetSoilPos != null) handleSoil();
         else if (targetWaterPos != null) handleWater();
@@ -234,12 +227,13 @@ public class VillagerFarmingGoal extends Goal {
         }
     }
 
-    private BlockPos findMatureCrop() {
+    private BlockPos findMatureCrop(long now) {
         BlockPos center = villager.blockPosition();
         for (int dx = -SEARCH_RADIUS; dx <= SEARCH_RADIUS; dx++) {
             for (int dz = -SEARCH_RADIUS; dz <= SEARCH_RADIUS; dz++) {
                 for (int dy = -4; dy <= 4; dy++) {
                     BlockPos pos = center.offset(dx, dy, dz);
+                    if (blockedUntil.containsKey(pos) && blockedUntil.get(pos) > now) continue;
                     if (isMatureCrop(villager.level().getBlockState(pos))) {
                         return pos.immutable();
                     }
@@ -249,12 +243,13 @@ public class VillagerFarmingGoal extends Goal {
         return null;
     }
 
-    private BlockPos findUnripeCrop() {
+    private BlockPos findUnripeCrop(long now) {
         BlockPos center = villager.blockPosition();
         for (int dx = -SEARCH_RADIUS; dx <= SEARCH_RADIUS; dx++) {
             for (int dz = -SEARCH_RADIUS; dz <= SEARCH_RADIUS; dz++) {
                 for (int dy = -4; dy <= 4; dy++) {
                     BlockPos pos = center.offset(dx, dy, dz);
+                    if (blockedUntil.containsKey(pos) && blockedUntil.get(pos) > now) continue;
                     BlockState state = villager.level().getBlockState(pos);
                     if (isCrop(state) && !isMatureCrop(state)) {
                         return pos.immutable();
@@ -265,12 +260,13 @@ public class VillagerFarmingGoal extends Goal {
         return null;
     }
 
-    private BlockPos findDryFarmland() {
+    private BlockPos findDryFarmland(long now) {
         BlockPos center = villager.blockPosition();
         for (int dx = -SEARCH_RADIUS; dx <= SEARCH_RADIUS; dx++) {
             for (int dz = -SEARCH_RADIUS; dz <= SEARCH_RADIUS; dz++) {
                 for (int dy = -3; dy <= 3; dy++) {
                     BlockPos pos = center.offset(dx, dy, dz);
+                    if (blockedUntil.containsKey(pos) && blockedUntil.get(pos) > now) continue;
                     BlockState state = villager.level().getBlockState(pos);
                     if (state.getBlock() == Blocks.FARMLAND) {
                         int moisture = state.getValue(FarmBlock.MOISTURE);
@@ -284,7 +280,7 @@ public class VillagerFarmingGoal extends Goal {
         return null;
     }
 
-    private BlockPos findEmptyFarmland() {
+    private BlockPos findEmptyFarmland(long now) {
         BlockPos center = villager.blockPosition();
         BlockPos bestPos = null;
         int bestScore = -1;
@@ -293,6 +289,7 @@ public class VillagerFarmingGoal extends Goal {
             for (int dz = -SEARCH_RADIUS; dz <= SEARCH_RADIUS; dz++) {
                 for (int dy = -3; dy <= 3; dy++) {
                     BlockPos pos = center.offset(dx, dy, dz);
+                    if (blockedUntil.containsKey(pos) && blockedUntil.get(pos) > now) continue;
                     BlockState state = villager.level().getBlockState(pos);
 
                     if (state.getBlock() == Blocks.FARMLAND) {
@@ -300,10 +297,7 @@ public class VillagerFarmingGoal extends Goal {
                         if (!villager.level().getBlockState(above).isAir()) continue;
 
                         int score = 0;
-
-                        if (isNearWater(pos)) {
-                            score += 100;
-                        }
+                        if (isNearWater(pos)) score += 100;
 
                         int nearbyCrops = countNearbyCrops(pos, 3);
                         score += Math.min(nearbyCrops * 15, 75);
@@ -319,16 +313,10 @@ public class VillagerFarmingGoal extends Goal {
                 }
             }
         }
-
-        if (bestScore > 0) {
-            EconomyMod.LOGGER.debug("[FARMING] {} выбрал грядку для посадки {} с рейтингом {}",
-                    villager.getName().getString(), bestPos.toShortString(), bestScore);
-            return bestPos;
-        }
-        return null;
+        return bestPos;
     }
 
-    private BlockPos findTillableDirt() {
+    private BlockPos findTillableDirt(long now) {
         BlockPos center = villager.blockPosition();
         BlockPos anchor = attachment.getPersonalChestPos() != null ? attachment.getPersonalChestPos() : center;
         BlockPos bestPos = null;
@@ -338,6 +326,7 @@ public class VillagerFarmingGoal extends Goal {
             for (int dz = -SEARCH_RADIUS; dz <= SEARCH_RADIUS; dz++) {
                 for (int dy = -2; dy <= 2; dy++) {
                     BlockPos pos = center.offset(dx, dy, dz);
+                    if (blockedUntil.containsKey(pos) && blockedUntil.get(pos) > now) continue;
                     BlockState state = villager.level().getBlockState(pos);
 
                     if (state.getBlock() == Blocks.DIRT || state.getBlock() == Blocks.GRASS_BLOCK || state.getBlock() == Blocks.COARSE_DIRT) {
@@ -349,7 +338,6 @@ public class VillagerFarmingGoal extends Goal {
                         if (anchor != null && anchor.distSqr(pos) > 1024) continue;
 
                         int score = 0;
-
                         int nearbyFarmland = countNearbyBlocks(pos, Blocks.FARMLAND, 3);
                         score += Math.min(nearbyFarmland * 15, 75);
 
@@ -364,13 +352,7 @@ public class VillagerFarmingGoal extends Goal {
                 }
             }
         }
-
-        if (bestScore > 0) {
-            EconomyMod.LOGGER.debug("[FARMING] {} выбрал землю для пахоты {} с рейтингом {}",
-                    villager.getName().getString(), bestPos.toShortString(), bestScore);
-            return bestPos;
-        }
-        return null;
+        return bestPos;
     }
 
     private int countNearbyBlocks(BlockPos pos, Block target, int radius) {
@@ -447,10 +429,7 @@ public class VillagerFarmingGoal extends Goal {
             }
         }
 
-        if (!canPlaceWaterHere) {
-            EconomyMod.LOGGER.debug("[FARMING] {} нет места для воды у {}", villager.getName().getString(), farmlandPos.toShortString());
-            return;
-        }
+        if (!canPlaceWaterHere) return;
 
         for (int i = 0; i < inv.getContainerSize(); i++) {
             ItemStack stack = inv.getItem(i);
@@ -465,18 +444,13 @@ public class VillagerFarmingGoal extends Goal {
                     }
                 }
 
-                if (waterPos == null) {
-                    EconomyMod.LOGGER.debug("[FARMING] {} не нашёл места для воды у {}", villager.getName().getString(), farmlandPos.toShortString());
-                    return;
-                }
+                if (waterPos == null) return;
 
                 level.setBlock(waterPos, Blocks.WATER.defaultBlockState(), 3);
                 stack.shrink(1);
                 inv.addItem(new ItemStack(Items.BUCKET));
                 villager.swing(InteractionHand.MAIN_HAND);
                 level.playSound(null, waterPos, net.minecraft.sounds.SoundEvents.BUCKET_EMPTY, net.minecraft.sounds.SoundSource.BLOCKS, 1.0F, 1.0F);
-                EconomyMod.LOGGER.info("[FARMING] {} поставил воду в {} для грядки {}",
-                        villager.getName().getString(), waterPos.toShortString(), farmlandPos.toShortString());
                 break;
             }
         }
@@ -491,8 +465,6 @@ public class VillagerFarmingGoal extends Goal {
         BlockState aboveState = level.getBlockState(above);
         if (!aboveState.isAir()) {
             level.destroyBlock(above, true, villager);
-            EconomyMod.LOGGER.debug("[FARMING] {} убрал препятствие {} над {}",
-                    villager.getName().getString(), aboveState.getBlock().getDescriptionId(), pos.toShortString());
         }
 
         if (level.getBlockState(pos).getBlock() == Blocks.FARMLAND) return;
@@ -509,6 +481,11 @@ public class VillagerFarmingGoal extends Goal {
 
         villager.swing(InteractionHand.MAIN_HAND);
         level.playSound(null, pos, net.minecraft.sounds.SoundEvents.HOE_TILL, net.minecraft.sounds.SoundSource.BLOCKS, 1.0F, 1.0F);
+
+        // СБРОС ШТРАФОВ: Успешная вспашка доказывает, что фермер не застрял! Полностью очищаем черный список
+        failCount.clear();
+        blockedUntil.clear();
+
         attachment.decreaseHunger(0.15);
     }
 
@@ -523,6 +500,11 @@ public class VillagerFarmingGoal extends Goal {
                 seeds.shrink(1);
                 villager.swing(InteractionHand.MAIN_HAND);
                 villager.level().playSound(null, above, net.minecraft.sounds.SoundEvents.CROP_PLANTED, net.minecraft.sounds.SoundSource.BLOCKS, 1.0F, 1.0F);
+
+                // СБРОС ШТРАФОВ: Успешная посадка семечка полностью очищает черный список
+                failCount.clear();
+                blockedUntil.clear();
+
                 attachment.decreaseHunger(0.1);
             }
         }
@@ -566,6 +548,11 @@ public class VillagerFarmingGoal extends Goal {
             attachment.getInventory().addItem(drop);
         }
         villager.swing(InteractionHand.MAIN_HAND);
+
+        // СБРОС ШТРАФОВ: Успешный сбор созревшего урожая полностью очищает черный список грядок
+        failCount.clear();
+        blockedUntil.clear();
+
         attachment.decreaseHunger(0.2);
         if (villager.getRandom().nextFloat() < 0.3f) {
             level.addFreshEntity(new net.minecraft.world.entity.ExperienceOrb(level, villager.getX(), villager.getY(), villager.getZ(), 1));
@@ -676,6 +663,7 @@ public class VillagerFarmingGoal extends Goal {
         targetCropPos = null;
         targetSoilPos = null;
         targetWaterPos = null;
+        this.lastTargetPos = null;
         if (useBoneMealCooldown > 0) useBoneMealCooldown--;
     }
 

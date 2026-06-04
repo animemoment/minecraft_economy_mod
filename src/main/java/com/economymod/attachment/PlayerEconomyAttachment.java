@@ -12,7 +12,7 @@ public class PlayerEconomyAttachment {
 
     private double balance;
 
-    public void setBalance(double balance) {
+    public synchronized void setBalance(double balance) {
         this.balance = balance;
     }
 
@@ -24,19 +24,19 @@ public class PlayerEconomyAttachment {
         this.balance = balance;
     }
 
-    public double getBalance() {
+    public synchronized double getBalance() {
         return balance;
     }
 
-    public boolean hasEnough(double amount) {
+    public synchronized boolean hasEnough(double amount) {
         return this.balance >= amount;
     }
 
-    public void add(double amount) {
+    public synchronized void add(double amount) {
         this.balance += amount;
     }
 
-    public boolean subtract(double amount) {
+    public synchronized boolean subtract(double amount) {
         if (!hasEnough(amount)) return false;
         this.balance -= amount;
         return true;

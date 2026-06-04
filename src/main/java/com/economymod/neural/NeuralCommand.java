@@ -1,6 +1,5 @@
 package com.economymod.neural;
 
-import com.economymod.entity.TestCreatureEntity;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.FloatArgumentType;
 import net.minecraft.commands.CommandSourceStack;
@@ -32,24 +31,15 @@ public class NeuralCommand {
                                     AABB box = new AABB(player.blockPosition()).inflate(radius);
                                     int found = 0;
 
-                                    // Ищем TestCreatureEntity
-                                    for (TestCreatureEntity e : player.level().getEntitiesOfClass(TestCreatureEntity.class, box, LivingEntity::isAlive)) {
-                                        String status = NeuralManager.getStatus(e);
-                                        player.sendSystemMessage(Component.literal("§e" + e.getName().getString() + "§r: " + status));
+                                    // Поиск жителей в радиусе и вывод статуса их обучения
+                                    for (Villager v : player.level().getEntitiesOfClass(Villager.class, box, LivingEntity::isAlive)) {
+                                        String status = NeuralManager.getStatus(v);
+                                        player.sendSystemMessage(Component.literal("§a" + v.getName().getString() + "§r: " + status));
                                         found++;
                                     }
 
-                                    // Ищем Villager (только если они действительно используют нейросеть, сейчас отключено, но на будущее)
-                                    if (NeuralConfig.PROCESS_VILLAGERS) {
-                                        for (Villager v : player.level().getEntitiesOfClass(Villager.class, box, LivingEntity::isAlive)) {
-                                            String status = NeuralManager.getStatus(v);
-                                            player.sendSystemMessage(Component.literal("§a" + v.getName().getString() + "§r: " + status));
-                                            found++;
-                                        }
-                                    }
-
                                     if (found == 0) {
-                                        player.sendSystemMessage(Component.literal("No entities with neural network found within " + radius + " blocks"));
+                                        player.sendSystemMessage(Component.literal("No villagers with neural network found within " + radius + " blocks"));
                                     }
                                     return found;
                                 })
@@ -58,38 +48,19 @@ public class NeuralCommand {
                             ServerPlayer player = ctx.getSource().getPlayerOrException();
                             AABB box = player.getBoundingBox().inflate(10);
 
-                            // Сначала ищем ближайшую TestCreatureEntity
-                            TestCreatureEntity nearestCreature = null;
+                            Villager nearestVillager = null;
                             double minDist = 1000;
-                            for (TestCreatureEntity e : player.level().getEntitiesOfClass(TestCreatureEntity.class, box, LivingEntity::isAlive)) {
-                                double d = player.distanceToSqr(e);
+                            for (Villager v : player.level().getEntitiesOfClass(Villager.class, box, LivingEntity::isAlive)) {
+                                double d = player.distanceToSqr(v);
                                 if (d < minDist) {
                                     minDist = d;
-                                    nearestCreature = e;
+                                    nearestVillager = v;
                                 }
                             }
-                            if (nearestCreature != null) {
-                                String status = NeuralManager.getStatus(nearestCreature);
-                                player.sendSystemMessage(Component.literal(nearestCreature.getName().getString() + ": " + status));
+                            if (nearestVillager != null) {
+                                String status = NeuralManager.getStatus(nearestVillager);
+                                player.sendSystemMessage(Component.literal(nearestVillager.getName().getString() + ": " + status));
                                 return 1;
-                            }
-
-                            // Если нет TestCreatureEntity, ищем Villager (если включены)
-                            if (NeuralConfig.PROCESS_VILLAGERS) {
-                                Villager nearestVillager = null;
-                                minDist = 1000;
-                                for (Villager v : player.level().getEntitiesOfClass(Villager.class, box, LivingEntity::isAlive)) {
-                                    double d = player.distanceToSqr(v);
-                                    if (d < minDist) {
-                                        minDist = d;
-                                        nearestVillager = v;
-                                    }
-                                }
-                                if (nearestVillager != null) {
-                                    String status = NeuralManager.getStatus(nearestVillager);
-                                    player.sendSystemMessage(Component.literal(nearestVillager.getName().getString() + ": " + status));
-                                    return 1;
-                                }
                             }
 
                             player.sendSystemMessage(Component.literal("No entity with neural network nearby"));

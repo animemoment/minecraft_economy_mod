@@ -15,8 +15,8 @@ public class FreedomAnalyzer {
     private BlockPos startPos;
 
     private int escapeRadius = 20;
-    private int maxHorizontalDistance = 150;      // уменьшено с 250
-    private int maxNodes = 10000;                  // уменьшено с 50000
+    private int maxHorizontalDistance = 150;
+    private int maxNodes = 10000;
 
     public FreedomAnalyzer(LivingEntity entity) {
         this.entity = entity;
@@ -95,13 +95,19 @@ public class FreedomAnalyzer {
         return state.isSolid();
     }
 
+    // ИСПРАВЛЕНО: Двери, люки и калитки считаются проходимыми ТОЛЬКО если они физически открыты!
     private boolean isPassableSpecial(BlockState state) {
         Block block = state.getBlock();
-        return block instanceof DoorBlock ||
-                block instanceof TrapDoorBlock ||
-                block instanceof FenceGateBlock ||
-                block instanceof LadderBlock ||
-                block instanceof VineBlock;
+        if (block instanceof DoorBlock) {
+            return state.getValue(DoorBlock.OPEN);
+        }
+        if (block instanceof TrapDoorBlock) {
+            return state.getValue(TrapDoorBlock.OPEN);
+        }
+        if (block instanceof FenceGateBlock) {
+            return state.getValue(FenceGateBlock.OPEN);
+        }
+        return block instanceof LadderBlock || block instanceof VineBlock;
     }
 
     private List<BlockPos> getPassableNeighbors(BlockPos pos) {

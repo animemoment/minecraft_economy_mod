@@ -5,10 +5,10 @@ import com.economymod.attachment.VillagerAttachment;
 import com.economymod.economy.IEconomicActor;
 import com.economymod.economy.PriceCalculator;
 import com.economymod.entity.ai.TravelToVillageGoal;
-import com.economymod.entity.ai.VillagerMiningGoal;
 import com.economymod.gui.menu.EconomyTradeMenu;
 import com.economymod.network.ClientboundOwnerInventorySyncPacket;
 import com.economymod.world.VillageNetworkData;
+import com.economymod.config.EconomyConfig;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
@@ -43,7 +43,7 @@ import java.util.*;
 public class EconomyTraderEntity extends AbstractVillager implements MenuProvider, IEconomicActor {
 
     public final SimpleContainer inventory = new SimpleContainer(36);
-    public double budget = 500.0;
+    private double budget = 500.0; // Скрыто в private для гарантированной потокобезопасности
     private BlockPos currentBazaar;
     public long lastTravelTime = 0;
     private long lastTradeTick = 0;
@@ -61,14 +61,13 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
         }
     }
 
-    // ВОЗВРАЩЕННЫЙ МЕТОД ДЛЯ КОМАНДЫ
     public void arriveAtVillage(BlockPos bazaarPos) {
         if (bazaarPos == null) return;
         this.currentBazaar = bazaarPos;
         if (PriceCalculator.isPriceTableReady()) tradeWithVillagers();
     }
 
-    public boolean evaluateOffer(ItemStack stack, double playerPrice, boolean isPlayerBuying) {
+    public synchronized boolean evaluateOffer(ItemStack stack, double playerPrice, boolean isPlayerBuying) {
         if (stack.isEmpty() || playerPrice <= 0) return false;
         VillageNetworkData.VillageInfo info = null;
         if (level() instanceof ServerLevel serverLevel && currentBazaar != null) {
@@ -79,7 +78,7 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
         else return playerPrice <= (fairPrice * 1.05);
     }
 
-    public void processCustomTransaction(ServerPlayer player, ItemStack stack, double confirmedPrice, boolean isPlayerBuying) {
+    public synchronized void processCustomTransaction(ServerPlayer player, ItemStack stack, double confirmedPrice, boolean isPlayerBuying) {
         if (isPlayerBuying) {
             if (player.containerMenu instanceof EconomyTradeMenu menu) {
                 var playerActor = menu.getPlayerActor();
@@ -139,8 +138,11 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
 
     @Nullable @Override public AbstractContainerMenu createMenu(int id, Inventory inv, Player p) { return new EconomyTradeMenu(id, inv, this); }
     @Override public SimpleContainer getInventory() { return inventory; }
-    @Override public double getBalance() { return budget; }
-    @Override public void setBalance(double balance) { this.budget = balance; }
+
+    // Синхронизированный потокобезопасный доступ к деньгам торговца
+    @Override public synchronized double getBalance() { return budget; }
+    @Override public synchronized void setBalance(double balance) { this.budget = balance; }
+
     @Override public Component getDisplayName() { return this.getCustomName() != null ? this.getCustomName() : Component.literal("Trader"); }
     @Override public String getActorDisplayName() { return getDisplayName().getString(); }
     @Override public BlockPos getPosition() { return currentBazaar; }
@@ -171,7 +173,7 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
         }
     }
 
-    public void tradeWithVillagers() {
+    public synchronized void tradeWithVillagers() {
         if (!(level() instanceof ServerLevel serverLevel) || currentBazaar == null) return;
         VillageNetworkData data = VillageNetworkData.get(serverLevel);
         VillageNetworkData.VillageInfo info = data.getVillageInfo(currentBazaar);
@@ -181,7 +183,12 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
         if (villagers.isEmpty()) return;
 
         boolean tradeHappened = false;
+        int tradesCount = 0;
+        int maxTrades = EconomyConfig.MAX_CONCURRENT_TRADES.get(); // Считываем лимит из валидируемого конфига
+
         for (Villager villager : villagers) {
+            if (tradesCount >= maxTrades) break; // Защитный лимит на количество сделок за один тик
+
             var att = villager.getData(com.economymod.registry.ModAttachments.VILLAGER.get());
             if (att == null || att.getProfession() == net.minecraft.world.entity.npc.VillagerProfession.NONE) continue;
 
@@ -191,8 +198,13 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
                     if (!sellerStack.isEmpty() && ItemStack.isSameItemSameComponents(sellerStack, d.stack)) {
                         int amount = Math.min(sellerStack.getCount(), d.stack.getCount());
                         double pricePerItem = PriceCalculator.getBuyPrice(new ItemStack(d.stack.getItem()), info);
-                        if (pricePerItem <= d.maxPricePerItem) {
-                            double total = pricePerItem * amount;
+
+                        // Применение налога из конфига при расчете сделки (TAX_RATE)
+                        double taxMultiplier = 1.0 + EconomyConfig.TAX_RATE.get();
+                        double priceWithTax = pricePerItem * taxMultiplier;
+
+                        if (priceWithTax <= d.maxPricePerItem) {
+                            double total = priceWithTax * amount;
                             if (att.getBalance() >= total) {
                                 sellerStack.shrink(amount);
                                 att.setBalance(att.getBalance() - total);
@@ -200,6 +212,7 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
                                 att.getInventory().addItem(new ItemStack(d.stack.getItem(), amount));
                                 info.recordTrade(d.stack.getItem(), amount);
                                 tradeHappened = true;
+                                tradesCount++;
                                 break;
                             }
                         }
@@ -209,6 +222,8 @@ public class EconomyTraderEntity extends AbstractVillager implements MenuProvide
         }
         if (tradeHappened) { data.setDirty(); syncInventoryToClients(); }
     }
+
+    @Override public net.minecraft.world.entity.LivingEntity getEntity() { return this; }
 
     private int countNonEmptySlots(SimpleContainer inv) {
         int count = 0;

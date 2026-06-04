@@ -52,7 +52,13 @@ public class VillagerMiningGoal extends Goal {
     private long lastMoveTick = 0;
     private static final long STUCK_TIMEOUT_TICKS = 40;
 
-    // Чёрный список недостижимых целей
+    // Переменные асинхронного сканера
+    private volatile BlockPos asyncTargetBlockPos = null;
+    private volatile boolean asyncScanRunning = false;
+    private volatile long lastAsyncScanTime = 0;
+    private static final long ASYNC_SCAN_COOLDOWN = 100; // Сканируем мир раз в 5 секунд
+
+    // Черный список недостижимых целей
     private final Map<BlockPos, Integer> failCount = new HashMap<>();
     private final Map<BlockPos, Long> blockedUntil = new HashMap<>();
     private static final int MAX_FAILS = 3;
@@ -119,10 +125,10 @@ public class VillagerMiningGoal extends Goal {
         if (!isFluid(villager.level().getBlockState(pos))) return false;
         BlockState state = villager.level().getBlockState(pos);
         if (state.getFluidState().isSource()) {
-            EconomyMod.LOGGER.info("[MINING] {} обнаружил источник воды в {}, осушаю область", villager.getName().getString(), pos.toShortString());
+            EconomyMod.LOGGER.debug("[MINING] {} обнаружил источник воды в {}, осушаю область", villager.getName().getString(), pos.toShortString());
             return handleWaterSource(pos, att);
         } else {
-            EconomyMod.LOGGER.info("[MINING] {} обнаружил текучую воду в {}, затыкаю", villager.getName().getString(), pos.toShortString());
+            EconomyMod.LOGGER.debug("[MINING] {} обнаружил текучую воду в {}, затыкаю", villager.getName().getString(), pos.toShortString());
             return handleFlowingWater(pos, att);
         }
     }
@@ -130,7 +136,6 @@ public class VillagerMiningGoal extends Goal {
     @Override
     public boolean canUse() {
         long now = villager.level().getGameTime();
-        boolean shouldLog = (now - lastLogTick > 100);
 
         if (villager.isInWater()) {
             if (!villager.hasEffect(MobEffects.MOVEMENT_SPEED) ||
@@ -160,6 +165,12 @@ public class VillagerMiningGoal extends Goal {
         VillagerAttachment att = villager.getData(ModAttachments.VILLAGER.get());
         if (att == null) return false;
 
+        // ПРЕДОХРАНИТЕЛЬ УСТАЛОСТИ: Если житель выгорел (усталость > 85%), он отказывается копать!
+        com.economymod.creatures.VillagerBrainWrapper brainWrapper = com.economymod.creatures.VillagerBrainWrapper.get(villager);
+        if (brainWrapper != null && brainWrapper.getSensorValue("Fatigue") > 0.85f) {
+            return false;
+        }
+
         boolean hasFreeSlot = false;
         SimpleContainer inv = att.getInventory();
         for (int i = 0; i < inv.getContainerSize(); i++) {
@@ -184,107 +195,85 @@ public class VillagerMiningGoal extends Goal {
             }
         }
 
-        // ========== ВЫСШИЙ ПРИОРИТЕТ: РУДА (даже вне рабочего времени) ==========
-        // Проверка руды всегда разрешена
-        if (villager.level().getGameTime() % 10 == 0 || targetBlockPos == null) {
-            BlockPos current = villager.blockPosition();
-            for (BlockPos pos : BlockPos.betweenClosed(current.offset(-12, -6, -12), current.offset(12, 6, 12))) {
-                if (recentlyDestroyed.contains(pos)) continue;
-                if (startY != -1 && pos.getY() > startY + 10) continue;
-                if (pos.getY() > villager.blockPosition().getY() + 3) continue;
-                if (blockedUntil.containsKey(pos) && blockedUntil.get(pos) > now) continue;
-                BlockState state = villager.level().getBlockState(pos);
-                if (state.is(Tags.Blocks.ORES) && isMinable(state) && isToolTiredCorrect(pickaxe, state) && isSafeToMine(pos, att)) {
-                    if (hasLineOfSightToBlock(pos)) {
-                        this.targetBlockPos = pos.immutable();
-                        this.isBridging = false;
-                        EconomyMod.LOGGER.info("[MINING] {} нашёл руду {} в {}", villager.getName().getString(), state.getBlock().getName().getString(), pos.toShortString());
-                        targetStartTime = villager.level().getGameTime();
-                        return true;
-                    }
-                }
-            }
+        // Если у нас уже есть активная цель, продолжаем выполнять ее
+        if (targetBlockPos != null) {
+            return true;
         }
 
-        // Проверка рабочего времени: если не рабочее время, запрещаем все остальные действия (кроме руды)
-        long dayTime = villager.level().getGameTime() % 24000;
-        boolean isWorkingTime = (dayTime >= 6000 && dayTime < 18000);
-        if (!isWorkingTime) {
+        // Если фоновое сканирование еще идет в другом потоке, просто выходим (не блокируем сервер)
+        if (asyncScanRunning) {
             return false;
         }
 
-        BlockPos feetPos = villager.blockPosition();
-        BlockPos headPos = feetPos.above();
-        BlockState stateFeetPos = villager.level().getBlockState(feetPos);
-        BlockState stateHeadPos = villager.level().getBlockState(headPos);
-
-        if (isPathBlocked(stateFeetPos) && isMinable(stateFeetPos) &&
-                !(stateFeetPos.getBlock() instanceof net.minecraft.world.level.block.BedBlock) &&
-                !(stateFeetPos.getBlock() instanceof net.minecraft.world.level.block.ChestBlock)) {
-            if (blockedUntil.containsKey(feetPos) && blockedUntil.get(feetPos) > now) return false;
-            this.targetBlockPos = feetPos;
+        // Если асинхронный сканер нашел цель, забираем ее
+        if (asyncTargetBlockPos != null) {
+            this.targetBlockPos = asyncTargetBlockPos;
+            this.asyncTargetBlockPos = null; // сбрасываем буфер
             this.isBridging = false;
-            EconomyMod.LOGGER.info("[MINING] {} копает блок под ногами: {}", villager.getName().getString(), feetPos.toShortString());
-            targetStartTime = villager.level().getGameTime();
-            return true;
-        }
-        if (isPathBlocked(stateHeadPos) && isMinable(stateHeadPos) &&
-                !(stateHeadPos.getBlock() instanceof net.minecraft.world.level.block.BedBlock) &&
-                !(stateHeadPos.getBlock() instanceof net.minecraft.world.level.block.ChestBlock)) {
-            if (blockedUntil.containsKey(headPos) && blockedUntil.get(headPos) > now) return false;
-            this.targetBlockPos = headPos;
-            this.isBridging = false;
-            EconomyMod.LOGGER.info("[MINING] {} копает блок на уровне головы: {}", villager.getName().getString(), headPos.toShortString());
-            targetStartTime = villager.level().getGameTime();
+            this.targetStartTime = now;
             return true;
         }
 
-        if (activeVeinBlockPos != null) {
-            BlockState state = villager.level().getBlockState(activeVeinBlockPos);
-            if (isMinable(state) && isToolTiredCorrect(pickaxe, state) && isSafeToMine(activeVeinBlockPos, att) && hasLineOfSightToBlock(activeVeinBlockPos)) {
-                if (blockedUntil.containsKey(activeVeinBlockPos) && blockedUntil.get(activeVeinBlockPos) > now) {
-                    this.activeVeinBlockPos = null;
-                } else {
-                    this.targetBlockPos = activeVeinBlockPos;
-                    this.isBridging = false;
-                    EconomyMod.LOGGER.info("[MINING] {} продолжает жилу в {}", villager.getName().getString(), activeVeinBlockPos.toShortString());
-                    targetStartTime = villager.level().getGameTime();
-                    return true;
+        // Запуск асинхронного сканирования по кулдауну
+        if (now - lastAsyncScanTime > ASYNC_SCAN_COOLDOWN) {
+            lastAsyncScanTime = now;
+            asyncScanRunning = true;
+
+            // Копируем необходимые потокобезопасные переменные для передачи в фоновый поток
+            BlockPos currentPos = villager.blockPosition().immutable();
+            Level level = villager.level();
+            ItemStack pickaxeCopy = pickaxe.copy();
+            int currentStartY = this.startY;
+            BlockPos chestPos = att.getPersonalChestPos();
+
+            AsyncTaskScheduler.submit(() -> {
+                try {
+                    BlockPos found = performBackgroundScan(level, currentPos, pickaxeCopy, currentStartY, chestPos, att);
+                    if (found != null) {
+                        this.asyncTargetBlockPos = found; // безопасно публикуем результат
+                    }
+                } catch (Exception ignored) {
+                } finally {
+                    asyncScanRunning = false;
                 }
-            } else {
-                this.activeVeinBlockPos = null;
+            });
+        }
+
+        return false;
+    }
+    /**
+     * Тяжелый цикл сканирования, выполняемый асинхронно в параллельном потоке
+     */
+    private BlockPos performBackgroundScan(Level level, BlockPos current, ItemStack pickaxe, int currentStartY, BlockPos chestPos, VillagerAttachment att) {
+        long now = level.getGameTime();
+
+        // 1. Поиск руды в радиусе 12x6x12
+        for (BlockPos pos : BlockPos.betweenClosed(current.offset(-12, -6, -12), current.offset(12, 6, 12))) {
+            if (recentlyDestroyed.contains(pos)) continue;
+            if (currentStartY != -1 && pos.getY() > currentStartY + 10) continue;
+            if (pos.getY() > current.getY() + 3) continue;
+            if (blockedUntil.containsKey(pos) && blockedUntil.get(pos) > now) continue;
+
+            // Потокобезопасность: работаем только с загруженными чанками!
+            if (!level.hasChunkAt(pos)) continue;
+
+            BlockState state = level.getBlockState(pos);
+            if (state.is(Tags.Blocks.ORES) && isMinable(state) && isToolTiredCorrect(pickaxe, state) && isSafeToMine(pos, att)) {
+                if (hasLineOfSightToBlock(pos)) {
+                    return pos.immutable();
+                }
             }
         }
 
-        BlockPos chestPos = att.getPersonalChestPos();
-        if (chestPos == null) {
-            BlockPos cur = villager.blockPosition();
-            for (BlockPos pos : BlockPos.betweenClosed(cur.offset(-8, -2, -8), cur.offset(8, 2, 8))) {
-                if (villager.level().getBlockState(pos).is(Blocks.CHEST)) {
-                    att.setPersonalChestPos(pos.immutable());
-                    chestPos = pos.immutable();
-                    EconomyMod.LOGGER.info("[MINING] {} нашёл сундук для шахты: {}", villager.getName().getString(), chestPos.toShortString());
-                    BlockPos startPos = chestPos.offset(0, 0, 1);
-                    this.startY = startPos.getY();
-                    att.setMiningStartY(this.startY);
-                    break;
-                }
-            }
+        // Проверяем рабочее время
+        long dayTime = level.getDayTime() % 24000;
+        boolean isWorkingTime = (dayTime >= 6000 && dayTime < 18000);
+        if (!isWorkingTime) {
+            return null;
         }
 
-        if (chestPos != null && currentStep >= 98) {
-            att.setPersonalChestPos(null);
-            att.setMiningStartY(-1);
-            this.startY = -1;
-            chestPos = null;
-            EconomyMod.LOGGER.info("[MINING] {} завершил шахту (98 шагов), ищет новый сундук", villager.getName().getString());
-        }
-
-        BlockPos startPos = (chestPos != null) ? chestPos.offset(0, 0, 1) : villager.blockPosition().immutable();
-        if (this.startY == -1) {
-            this.startY = startPos.getY();
-            att.setMiningStartY(this.startY);
-        }
+        // 2. Генерация шахтерского туннеля (до 100 шагов вниз)
+        BlockPos startPos = (chestPos != null) ? chestPos.offset(0, 0, 1) : current;
         int x = startPos.getX();
 
         for (int n = 0; n < 100; n++) {
@@ -295,187 +284,70 @@ public class VillagerMiningGoal extends Goal {
             BlockPos feetR = new BlockPos(x + 1, floorY + 1, z);
             BlockPos belowR = feetR.below();
 
-            if (isPathPassable(villager.level(), feetL) && isHazardousOrVoid(villager.level(), belowL)) {
+            if (!level.hasChunkAt(feetL) || !level.hasChunkAt(feetR)) break;
+
+            // Проверка необходимости мостов в шахте
+            if (isPathPassable(level, feetL) && isHazardousOrVoid(level, belowL)) {
                 if (!recentlyDestroyed.contains(belowL) && !(blockedUntil.containsKey(belowL) && blockedUntil.get(belowL) > now)) {
-                    if (tryRequestBridge(belowL, att, false, n, "ЛЕВЫЙ ПОЛ")) {
-                        targetStartTime = villager.level().getGameTime();
-                        return true;
-                    }
+                    if (!BridgeBuilder.getPlaceableBlock(att).isEmpty()) return belowL.immutable();
                 }
             }
-            if (isPathPassable(villager.level(), feetR) && isHazardousOrVoid(villager.level(), belowR)) {
+            if (isPathPassable(level, feetR) && isHazardousOrVoid(level, belowR)) {
                 if (!recentlyDestroyed.contains(belowR) && !(blockedUntil.containsKey(belowR) && blockedUntil.get(belowR) > now)) {
-                    if (tryRequestBridge(belowR, att, false, n, "ПРАВЫЙ ПОЛ")) {
-                        targetStartTime = villager.level().getGameTime();
-                        return true;
-                    }
+                    if (!BridgeBuilder.getPlaceableBlock(att).isEmpty()) return belowR.immutable();
                 }
             }
 
-            if (n > 0) {
-                if (isFluidOrUnstable(villager.level(), feetL)) {
-                    if (!recentlyDestroyed.contains(feetL) && !(blockedUntil.containsKey(feetL) && blockedUntil.get(feetL) > now)) {
-                        if (handleWaterIfNeeded(feetL, att, n, "ЛЕВЫЕ НОГИ")) return false;
-                    }
+            BlockState stateFeetL = level.getBlockState(feetL);
+            BlockState stateHeadL = level.getBlockState(feetL.above());
+            BlockState stateCeilL = level.getBlockState(feetL.above(2));
+            BlockState stateFeetR = level.getBlockState(feetR);
+            BlockState stateHeadR = level.getBlockState(feetR.above());
+            BlockState stateCeilR = level.getBlockState(feetR.above(2));
+
+            BlockPos ceilL = feetL.above(2);
+            BlockPos ceilR = feetR.above(2);
+
+            // Поиск горизонтальных ответвлений
+            if (n >= 12 && n % 6 == 0 && !isPathBlocked(stateFeetL) && !isPathBlocked(stateHeadL) && !isPathBlocked(stateCeilL) &&
+                    level.getBlockState(ceilL.above()).isSolid()) {
+                BlockPos branchTarget = scanHorizontalBranch(level, x, floorY, z, 1, pickaxe);
+                if (branchTarget != null && !recentlyDestroyed.contains(branchTarget) && !(blockedUntil.containsKey(branchTarget) && blockedUntil.get(branchTarget) > now)) {
+                    return branchTarget;
                 }
-                if (isFluidOrUnstable(villager.level(), feetR)) {
-                    if (!recentlyDestroyed.contains(feetR) && !(blockedUntil.containsKey(feetR) && blockedUntil.get(feetR) > now)) {
-                        if (handleWaterIfNeeded(feetR, att, n, "ПРАВЫЕ НОГИ")) return false;
-                    }
+                branchTarget = scanHorizontalBranch(level, x, floorY, z, -1, pickaxe);
+                if (branchTarget != null && !recentlyDestroyed.contains(branchTarget) && !(blockedUntil.containsKey(branchTarget) && blockedUntil.get(branchTarget) > now)) {
+                    return branchTarget;
                 }
             }
 
-            BlockState stateFeetL = villager.level().getBlockState(feetL);
-            BlockState stateHeadL = villager.level().getBlockState(feetL.above());
-            BlockState stateCeilL = villager.level().getBlockState(feetL.above(2));
-            BlockState stateFeetR = villager.level().getBlockState(feetR);
-            BlockState stateHeadR = villager.level().getBlockState(feetR.above());
-            BlockState stateCeilR = villager.level().getBlockState(feetR.above(2));
+            BlockState stateBelowL = level.getBlockState(belowL);
+            BlockState stateBelowR = level.getBlockState(belowR);
+            if (stateBelowL.is(Tags.Blocks.ORES) && isMinable(stateBelowL) && isSafeToMine(belowL, att) && !recentlyDestroyed.contains(belowL) && !(blockedUntil.containsKey(belowL) && blockedUntil.get(belowL) > now)) {
+                return belowL.immutable();
+            }
+            if (stateBelowR.is(Tags.Blocks.ORES) && isMinable(stateBelowR) && isSafeToMine(belowR, att) && !recentlyDestroyed.contains(belowR) && !(blockedUntil.containsKey(belowR) && blockedUntil.get(belowR) > now)) {
+                return belowR.immutable();
+            }
 
+            // Нахождение физического препятствия в туннеле
             if (isPathBlocked(stateFeetL) || isPathBlocked(stateHeadL) || isPathBlocked(stateCeilL) ||
                     isPathBlocked(stateFeetR) || isPathBlocked(stateHeadR) || isPathBlocked(stateCeilR)) {
+
+                BlockPos headL = feetL.above();
+                BlockPos headR = feetR.above();
+
+                if (isPathBlocked(stateCeilL) && isMinable(stateCeilL) && isSafeToMine(ceilL, att) && !recentlyDestroyed.contains(ceilL) && !(blockedUntil.containsKey(ceilL) && blockedUntil.get(ceilL) > now)) return ceilL.immutable();
+                if (isPathBlocked(stateCeilR) && isMinable(stateCeilR) && isSafeToMine(ceilR, att) && !recentlyDestroyed.contains(ceilR) && !(blockedUntil.containsKey(ceilR) && blockedUntil.get(ceilR) > now)) return ceilR.immutable();
+                if (isPathBlocked(stateHeadL) && isMinable(stateHeadL) && isSafeToMine(headL, att) && !recentlyDestroyed.contains(headL) && !(blockedUntil.containsKey(headL) && blockedUntil.get(headL) > now)) return headL.immutable();
+                if (isPathBlocked(stateHeadR) && isMinable(stateHeadR) && isSafeToMine(headR, att) && !recentlyDestroyed.contains(headR) && !(blockedUntil.containsKey(headR) && blockedUntil.get(headR) > now)) return headR.immutable();
+                if (isPathBlocked(stateFeetL) && isMinable(stateFeetL) && isSafeToMine(feetL, att) && !recentlyDestroyed.contains(feetL) && !(blockedUntil.containsKey(feetL) && blockedUntil.get(feetL) > now)) return feetL.immutable();
+                if (isPathBlocked(stateFeetR) && isMinable(stateFeetR) && isSafeToMine(feetR, att) && !recentlyDestroyed.contains(feetR) && !(blockedUntil.containsKey(feetR) && blockedUntil.get(feetR) > now)) return feetR.immutable();
+
                 break;
             }
         }
-
-        for (int n = 0; n < 100; n++) {
-            int z = startPos.getZ() + n;
-            int floorY = (chestPos != null) ? ((n < 3) ? (startPos.getY() - 1) : (startPos.getY() - ((n - 3) / 2) - 1)) : (startPos.getY() - (n / 2) - 1);
-            BlockPos feetL = new BlockPos(x, floorY + 1, z);
-            BlockPos headL = feetL.above();
-            BlockPos ceilL = feetL.above(2);
-            BlockPos belowL = feetL.below();
-            BlockPos feetR = new BlockPos(x + 1, floorY + 1, z);
-            BlockPos headR = feetR.above();
-            BlockPos ceilR = feetR.above(2);
-            BlockPos belowR = feetR.below();
-
-            if (isPathPassable(villager.level(), feetL) && isHazardousOrVoid(villager.level(), belowL)) {
-                if (!recentlyDestroyed.contains(belowL) && !(blockedUntil.containsKey(belowL) && blockedUntil.get(belowL) > now)) {
-                    if (tryRequestBridge(belowL, att, false, n, "ЛЕВЫЙ ПОЛ")) {
-                        targetStartTime = villager.level().getGameTime();
-                        return true;
-                    }
-                }
-            }
-            if (isPathPassable(villager.level(), feetR) && isHazardousOrVoid(villager.level(), belowR)) {
-                if (!recentlyDestroyed.contains(belowR) && !(blockedUntil.containsKey(belowR) && blockedUntil.get(belowR) > now)) {
-                    if (tryRequestBridge(belowR, att, false, n, "ПРАВЫЙ ПОЛ")) {
-                        targetStartTime = villager.level().getGameTime();
-                        return true;
-                    }
-                }
-            }
-
-            if (n > 0) {
-                if (isFluidOrUnstable(villager.level(), feetL)) {
-                    if (!recentlyDestroyed.contains(feetL) && !(blockedUntil.containsKey(feetL) && blockedUntil.get(feetL) > now)) {
-                        if (handleWaterIfNeeded(feetL, att, n, "ЛЕВЫЕ НОГИ (Ц2)")) return false;
-                    }
-                }
-                if (isFluidOrUnstable(villager.level(), feetR)) {
-                    if (!recentlyDestroyed.contains(feetR) && !(blockedUntil.containsKey(feetR) && blockedUntil.get(feetR) > now)) {
-                        if (handleWaterIfNeeded(feetR, att, n, "ПРАВЫЕ НОГИ (Ц2)")) return false;
-                    }
-                }
-                if (isFluidOrUnstable(villager.level(), headL)) {
-                    if (!recentlyDestroyed.contains(headL) && !(blockedUntil.containsKey(headL) && blockedUntil.get(headL) > now)) {
-                        if (handleWaterIfNeeded(headL, att, n, "ЛЕВАЯ ГОЛОВА (Ц2)")) return false;
-                    }
-                }
-                if (isFluidOrUnstable(villager.level(), headR)) {
-                    if (!recentlyDestroyed.contains(headR) && !(blockedUntil.containsKey(headR) && blockedUntil.get(headR) > now)) {
-                        if (handleWaterIfNeeded(headR, att, n, "ПРАВАЯ ГОЛОВА (Ц2)")) return false;
-                    }
-                }
-            }
-
-            BlockState stateFeetL = villager.level().getBlockState(feetL);
-            BlockState stateHeadL = villager.level().getBlockState(headL);
-            BlockState stateCeilL = villager.level().getBlockState(ceilL);
-            BlockState stateFeetR = villager.level().getBlockState(feetR);
-            BlockState stateHeadR = villager.level().getBlockState(headR);
-            BlockState stateCeilR = villager.level().getBlockState(ceilR);
-
-            if (n >= 12 && n % 6 == 0 && !isPathBlocked(stateFeetL) && !isPathBlocked(stateHeadL) && !isPathBlocked(stateCeilL) &&
-                    villager.level().getBlockState(ceilL.above()).isSolid()) {
-                BlockPos branchTarget = scanHorizontalBranch(x, floorY, z, 1, pickaxe);
-                if (branchTarget != null && !recentlyDestroyed.contains(branchTarget) && !(blockedUntil.containsKey(branchTarget) && blockedUntil.get(branchTarget) > now)) {
-                    this.targetBlockPos = branchTarget;
-                    EconomyMod.LOGGER.info("[MINING] {} начал горизонтальное ответвление вправо", villager.getName().getString());
-                    targetStartTime = villager.level().getGameTime();
-                    return true;
-                }
-                branchTarget = scanHorizontalBranch(x, floorY, z, -1, pickaxe);
-                if (branchTarget != null && !recentlyDestroyed.contains(branchTarget) && !(blockedUntil.containsKey(branchTarget) && blockedUntil.get(branchTarget) > now)) {
-                    this.targetBlockPos = branchTarget;
-                    EconomyMod.LOGGER.info("[MINING] {} начал горизонтальное ответвление влево", villager.getName().getString());
-                    targetStartTime = villager.level().getGameTime();
-                    return true;
-                }
-            }
-
-            BlockState stateBelowL = villager.level().getBlockState(belowL);
-            BlockState stateBelowR = villager.level().getBlockState(belowR);
-            if (stateBelowL.is(Tags.Blocks.ORES) && isMinable(stateBelowL) && isSafeToMine(belowL, att) && !recentlyDestroyed.contains(belowL) && !(blockedUntil.containsKey(belowL) && blockedUntil.get(belowL) > now)) {
-                this.targetBlockPos = belowL.immutable();
-                EconomyMod.LOGGER.info("[MINING] {} копает руду под ногами слева: {}", villager.getName().getString(), belowL.toShortString());
-                targetStartTime = villager.level().getGameTime();
-                return true;
-            }
-            if (stateBelowR.is(Tags.Blocks.ORES) && isMinable(stateBelowR) && isSafeToMine(belowR, att) && !recentlyDestroyed.contains(belowR) && !(blockedUntil.containsKey(belowR) && blockedUntil.get(belowR) > now)) {
-                this.targetBlockPos = belowR.immutable();
-                EconomyMod.LOGGER.info("[MINING] {} копает руду под ногами справа: {}", villager.getName().getString(), belowR.toShortString());
-                targetStartTime = villager.level().getGameTime();
-                return true;
-            }
-
-            if (isPathBlocked(stateFeetL) || isPathBlocked(stateHeadL) || isPathBlocked(stateCeilL) ||
-                    isPathBlocked(stateFeetR) || isPathBlocked(stateHeadR) || isPathBlocked(stateCeilR)) {
-                this.currentStep = n;
-                this.isBridging = false;
-
-                int nextZ = z + 1;
-                int nextFloorY = (chestPos != null) ? (((n + 1) < 3) ? (startPos.getY() - 1) : (startPos.getY() - (((n + 1) - 3) / 2) - 1)) : (startPos.getY() - ((n + 1) / 2) - 1);
-                BlockPos nextFeetL = new BlockPos(x, nextFloorY + 1, nextZ);
-                BlockPos nextFeetR = new BlockPos(x + 1, nextFloorY + 1, nextZ);
-
-                if (isFluidOrUnstable(villager.level(), nextFeetL)) {
-                    if (!recentlyDestroyed.contains(nextFeetL) && !(blockedUntil.containsKey(nextFeetL) && blockedUntil.get(nextFeetL) > now)) {
-                        if (handleWaterIfNeeded(nextFeetL, att, n + 1, "УПРЕЖДАЮЩИЙ ЛЕВЫЙ ПОЛ")) return false;
-                    }
-                }
-                if (isFluidOrUnstable(villager.level(), nextFeetR)) {
-                    if (!recentlyDestroyed.contains(nextFeetR) && !(blockedUntil.containsKey(nextFeetR) && blockedUntil.get(nextFeetR) > now)) {
-                        if (handleWaterIfNeeded(nextFeetR, att, n + 1, "УПРЕЖДАЮЩИЙ ПРАВЫЙ ПОЛ")) return false;
-                    }
-                }
-                if (isFluidOrUnstable(villager.level(), nextFeetL.above())) {
-                    if (!recentlyDestroyed.contains(nextFeetL.above()) && !(blockedUntil.containsKey(nextFeetL.above()) && blockedUntil.get(nextFeetL.above()) > now)) {
-                        if (handleWaterIfNeeded(nextFeetL.above(), att, n + 1, "УПРЕЖДАЮЩАЯ ЛЕВАЯ ГОЛОВА")) return false;
-                    }
-                }
-                if (isFluidOrUnstable(villager.level(), nextFeetR.above())) {
-                    if (!recentlyDestroyed.contains(nextFeetR.above()) && !(blockedUntil.containsKey(nextFeetR.above()) && blockedUntil.get(nextFeetR.above()) > now)) {
-                        if (handleWaterIfNeeded(nextFeetR.above(), att, n + 1, "УПРЕЖДАЮЩАЯ ПРАВАЯ ГОЛОВА")) return false;
-                    }
-                }
-
-                if (isPathBlocked(stateCeilL) && isMinable(stateCeilL) && isSafeToMine(ceilL, att) && !recentlyDestroyed.contains(ceilL) && !(blockedUntil.containsKey(ceilL) && blockedUntil.get(ceilL) > now)) this.targetBlockPos = ceilL;
-                else if (isPathBlocked(stateCeilR) && isMinable(stateCeilR) && isSafeToMine(ceilR, att) && !recentlyDestroyed.contains(ceilR) && !(blockedUntil.containsKey(ceilR) && blockedUntil.get(ceilR) > now)) this.targetBlockPos = ceilR;
-                else if (isPathBlocked(stateHeadL) && isMinable(stateHeadL) && isSafeToMine(headL, att) && !recentlyDestroyed.contains(headL) && !(blockedUntil.containsKey(headL) && blockedUntil.get(headL) > now)) this.targetBlockPos = headL;
-                else if (isPathBlocked(stateHeadR) && isMinable(stateHeadR) && isSafeToMine(headR, att) && !recentlyDestroyed.contains(headR) && !(blockedUntil.containsKey(headR) && blockedUntil.get(headR) > now)) this.targetBlockPos = headR;
-                else if (isPathBlocked(stateFeetL) && isMinable(stateFeetL) && isSafeToMine(feetL, att) && !recentlyDestroyed.contains(feetL) && !(blockedUntil.containsKey(feetL) && blockedUntil.get(feetL) > now)) this.targetBlockPos = feetL;
-                else if (isPathBlocked(stateFeetR) && isMinable(stateFeetR) && isSafeToMine(feetR, att) && !recentlyDestroyed.contains(feetR) && !(blockedUntil.containsKey(feetR) && blockedUntil.get(feetR) > now)) this.targetBlockPos = feetR;
-
-                if (this.targetBlockPos != null) {
-                    EconomyMod.LOGGER.info("[MINING] {} копает препятствие: {}", villager.getName().getString(), this.targetBlockPos.toShortString());
-                    targetStartTime = villager.level().getGameTime();
-                }
-                return this.targetBlockPos != null;
-            }
-        }
-        return false;
+        return null;
     }
 
     private boolean isEnemyNearby() {
@@ -538,7 +410,7 @@ public class VillagerMiningGoal extends Goal {
             this.targetBlockPos = pos.immutable();
             this.isBridging = true;
             if (shouldLog) {
-                EconomyMod.LOGGER.info("[MINING] {} строит мост ({}) шаг {}: {}", villager.getName().getString(), label, n, pos.toShortString());
+                EconomyMod.LOGGER.debug("[MINING] {} строит мост ({}) шаг {}: {}", villager.getName().getString(), label, n, pos.toShortString());
             }
             return true;
         }
@@ -554,22 +426,25 @@ public class VillagerMiningGoal extends Goal {
             this.targetBlockPos = pos.immutable();
             this.isBridging = true;
             if (shouldLog) {
-                EconomyMod.LOGGER.info("[MINING] {} закупоривает жидкость ({}) шаг {}: {}", villager.getName().getString(), label, n, pos.toShortString());
+                EconomyMod.LOGGER.debug("[MINING] {} закупоривает жидкость ({}) шаг {}: {}", villager.getName().getString(), label, n, pos.toShortString());
             }
             return true;
         }
         return false;
     }
 
-    private BlockPos scanHorizontalBranch(int startX, int y, int z, int dirX, ItemStack pickaxe) {
+    private BlockPos scanHorizontalBranch(Level level, int startX, int y, int z, int dirX, ItemStack pickaxe) {
         for (int b = 1; b <= 16; b++) {
             int cx = startX + (b * dirX);
             BlockPos bFloor = new BlockPos(cx, y, z);
             BlockPos bHead = new BlockPos(cx, y + 1, z);
             BlockPos bCeiling = new BlockPos(cx, y + 2, z);
-            BlockState stateFloor = villager.level().getBlockState(bFloor);
-            BlockState stateHead = villager.level().getBlockState(bHead);
-            BlockState stateClass = villager.level().getBlockState(bCeiling);
+
+            if (!level.hasChunkAt(bFloor)) break;
+
+            BlockState stateFloor = level.getBlockState(bFloor);
+            BlockState stateHead = level.getBlockState(bHead);
+            BlockState stateClass = level.getBlockState(bCeiling);
             if (!stateHead.isAir() || !stateClass.isAir()) {
                 if (!stateClass.isAir() && isMinable(stateClass) && isToolTiredCorrect(pickaxe, stateClass) && isSafeToMine(bCeiling, null)) {
                     return bCeiling.immutable();
@@ -658,7 +533,7 @@ public class VillagerMiningGoal extends Goal {
             }
         }
         if (targetBlockPos != null) {
-            EconomyMod.LOGGER.info("[MINING] {} начал копку. Цель: {}", villager.getName().getString(), targetBlockPos.toShortString());
+            EconomyMod.LOGGER.debug("[MINING] {} начал копку. Цель: {}", villager.getName().getString(), targetBlockPos.toShortString());
         }
         targetStartTime = villager.level().getGameTime();
     }
@@ -704,21 +579,17 @@ public class VillagerMiningGoal extends Goal {
     @Override
     public void tick() {
         if (targetBlockPos == null) {
-            if (villager.level().getGameTime() - lastNoTargetLog > 100) {
-                EconomyMod.LOGGER.info("[MINING] {} нет цели, стоит на месте", villager.getName().getString());
-                lastNoTargetLog = villager.level().getGameTime();
-            }
             return;
         }
 
         long nowGame = villager.level().getGameTime();
         if (nowGame - targetStartTime > TARGET_TIMEOUT_TICKS && breakProgress == 0) {
-            EconomyMod.LOGGER.warn("[MINING] {} таймаут цели {}, сброс", villager.getName().getString(), targetBlockPos.toShortString());
+            EconomyMod.LOGGER.debug("[MINING] {} таймаут цели {}, сброс", villager.getName().getString(), targetBlockPos.toShortString());
             int fails = failCount.getOrDefault(targetBlockPos, 0) + 1;
             failCount.put(targetBlockPos, fails);
             if (fails >= MAX_FAILS) {
                 blockedUntil.put(targetBlockPos, nowGame + BLOCK_DURATION_TICKS);
-                EconomyMod.LOGGER.warn("[MINING] {} блокируем цель {} на {} тиков", villager.getName().getString(), targetBlockPos.toShortString(), BLOCK_DURATION_TICKS);
+                EconomyMod.LOGGER.debug("[MINING] {} блокируем цель {} на {} тиков", villager.getName().getString(), targetBlockPos.toShortString(), BLOCK_DURATION_TICKS);
             }
             stop();
             this.targetBlockPos = null;
@@ -730,7 +601,7 @@ public class VillagerMiningGoal extends Goal {
             BlockPos currentPos = villager.blockPosition();
             if (lastPos != null && lastPos.equals(currentPos)) {
                 if (villager.level().getGameTime() - lastMoveTick > STUCK_TIMEOUT_TICKS) {
-                    EconomyMod.LOGGER.warn("[MINING] {} застрял на месте, сброс цели {}", villager.getName().getString(), targetBlockPos);
+                    EconomyMod.LOGGER.debug("[MINING] {} застрял на месте, сброс цели {}", villager.getName().getString(), targetBlockPos);
                     stop();
                     this.targetBlockPos = null;
                     this.activeVeinBlockPos = null;
@@ -744,14 +615,6 @@ public class VillagerMiningGoal extends Goal {
             lastPos = null;
         }
 
-        if (villager.level().getGameTime() % 100 == 0) {
-            EconomyMod.LOGGER.debug("[MINING] {} смотрит на {}, позиция {}, цель {}",
-                    villager.getName().getString(),
-                    villager.getLookControl().getWantedX() + ", " + villager.getLookControl().getWantedY() + ", " + villager.getLookControl().getWantedZ(),
-                    villager.blockPosition().toShortString(),
-                    targetBlockPos != null ? targetBlockPos.toShortString() : "null");
-        }
-
         if (villager.getBrain() != null) {
             villager.getBrain().eraseMemory(net.minecraft.world.entity.ai.memory.MemoryModuleType.WALK_TARGET);
             villager.getBrain().eraseMemory(net.minecraft.world.entity.ai.memory.MemoryModuleType.LOOK_TARGET);
@@ -759,9 +622,8 @@ public class VillagerMiningGoal extends Goal {
         }
 
         if (breakProgress > maxBreakTicks + 120) {
-            EconomyMod.LOGGER.warn("[MINING] {} ЗАСТРЯЛ! Прогресс {}, макс {}, целевой блок {}",
-                    villager.getName().getString(), breakProgress, maxBreakTicks,
-                    targetBlockPos != null ? targetBlockPos.toShortString() : "null");
+            EconomyMod.LOGGER.debug("[MINING] {} застрял на прогрессе! Сброс. Цель: {}",
+                    villager.getName().getString(), targetBlockPos != null ? targetBlockPos.toShortString() : "null");
             stop();
             this.targetBlockPos = null;
             this.activeVeinBlockPos = null;
@@ -772,8 +634,7 @@ public class VillagerMiningGoal extends Goal {
         BlockPos standPos = findSafeStandPos(targetBlockPos);
 
         if (startY != -1 && standPos.getY() > startY + 5) {
-            EconomyMod.LOGGER.warn("[MINING] {} standPos выше разрешённого ({} > {}), сброс цели",
-                    villager.getName().getString(), standPos.getY(), startY + 5);
+            EconomyMod.LOGGER.debug("[MINING] {} standPos выше разрешенного, сброс цели", villager.getName().getString());
             stop();
             this.targetBlockPos = null;
             return;
@@ -785,7 +646,7 @@ public class VillagerMiningGoal extends Goal {
             if (lastEscapeTarget != null && lastEscapeTarget.equals(targetBlockPos)) {
                 escapeAttempts++;
                 if (escapeAttempts >= 3) {
-                    EconomyMod.LOGGER.warn("[MINING] {} слишком много попыток выбраться из ямы для цели {}, сброс цели", villager.getName().getString(), targetBlockPos.toShortString());
+                    EconomyMod.LOGGER.debug("[MINING] {} слишком много попыток выбраться для цели {}, сброс", villager.getName().getString(), targetBlockPos.toShortString());
                     stop();
                     this.targetBlockPos = null;
                     this.activeVeinBlockPos = null;
@@ -810,8 +671,7 @@ public class VillagerMiningGoal extends Goal {
                     villager.level().playSound(null, feetPos, net.minecraft.sounds.SoundEvents.STONE_PLACE,
                             net.minecraft.sounds.SoundSource.BLOCKS, 1.0F, 1.0F);
                     lastEscapeTick = now;
-                    EconomyMod.LOGGER.info("[MINING] {} выбрался из ямы (глубина {}), подмостив блок под себя (попытка {})",
-                            villager.getName().getString(), standPos.getY() - feetPos.getY(), escapeAttempts);
+                    EconomyMod.LOGGER.debug("[MINING] {} выбрался из ямы, подмостив блок", villager.getName().getString());
                     return;
                 }
             }
@@ -841,7 +701,7 @@ public class VillagerMiningGoal extends Goal {
                 if (breakProgress >= maxBreakTicks) {
                     ItemStack block = BridgeBuilder.getPlaceableBlock(att);
                     BridgeBuilder.performPlaceBlock(villager.level(), targetBlockPos, block);
-                    EconomyMod.LOGGER.info("[MINING] {} завершил постройку моста/затычку в {}", villager.getName().getString(), targetBlockPos.toShortString());
+                    EconomyMod.LOGGER.debug("[MINING] {} завершил постройку моста/затычку в {}", villager.getName().getString(), targetBlockPos.toShortString());
                     this.targetBlockPos = null;
                     this.isBridging = false;
                     breakProgress = 0;
@@ -851,9 +711,6 @@ public class VillagerMiningGoal extends Goal {
                 return;
             } else {
                 if (villager.level().getBlockState(targetBlockPos).isAir()) {
-                    if (villager.level().getGameTime() % 100 == 0) {
-                        EconomyMod.LOGGER.debug("[MINING] {} целевой блок исчез, сброс", villager.getName().getString());
-                    }
                     recentlyDestroyed.add(targetBlockPos);
                     this.targetBlockPos = null;
                     this.breakProgress = 0;
@@ -883,7 +740,6 @@ public class VillagerMiningGoal extends Goal {
         if (villager.level() instanceof ServerLevel sl) {
             BlockState state = sl.getBlockState(targetBlockPos);
             if (state.isAir()) {
-                EconomyMod.LOGGER.debug("[MINING] {} блок уже воздух, сброс цели", villager.getName().getString());
                 recentlyDestroyed.add(targetBlockPos);
                 this.targetBlockPos = null;
                 return;
@@ -893,7 +749,7 @@ public class VillagerMiningGoal extends Goal {
             failCount.remove(targetBlockPos);
             blockedUntil.remove(targetBlockPos);
 
-            EconomyMod.LOGGER.info("[MINING] {} разрушил блок {} в {}",
+            EconomyMod.LOGGER.info("[MINING] {} успешно добыл блок {} в {}",
                     villager.getName().getString(), state.getBlock().getName().getString(), targetBlockPos.toShortString());
 
             damageTool();
@@ -909,11 +765,11 @@ public class VillagerMiningGoal extends Goal {
             BlockState aboveState = sl.getBlockState(abovePos);
             if (isPathBlocked(aboveState) && isMinable(aboveState)) {
                 this.activeVeinBlockPos = abovePos.immutable();
-                EconomyMod.LOGGER.info("[MINING] {} нашёл следующий блок жилы над: {}", villager.getName().getString(), abovePos.toShortString());
+                EconomyMod.LOGGER.debug("[MINING] {} нашел следующий блок жилы над: {}", villager.getName().getString(), abovePos.toShortString());
             } else {
                 this.activeVeinBlockPos = findAdjacentOre(targetBlockPos);
                 if (this.activeVeinBlockPos != null) {
-                    EconomyMod.LOGGER.info("[MINING] {} нашёл смежную руду: {}", villager.getName().getString(), this.activeVeinBlockPos.toShortString());
+                    EconomyMod.LOGGER.debug("[MINING] {} нашел смежную руду: {}", villager.getName().getString(), this.activeVeinBlockPos.toShortString());
                 }
             }
 
@@ -969,7 +825,6 @@ public class VillagerMiningGoal extends Goal {
         this.lastEscapeTarget = null;
         this.lastPos = null;
         villager.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
-        EconomyMod.LOGGER.info("[MINING] {} остановил копку (цель сброшена)", villager.getName().getString());
     }
 
     @Override

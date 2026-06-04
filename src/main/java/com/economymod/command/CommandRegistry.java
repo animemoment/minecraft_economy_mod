@@ -4,7 +4,7 @@ import com.economymod.EconomyMod;
 import com.economymod.economy.PriceCalculator;
 import com.economymod.world.VillageNetworkData;
 import com.economymod.neural.NeuralCommand;
-import com.economymod.entity.TestCreatureEntity;
+import com.economymod.creatures.VillagerBrainWrapper;
 import com.economymod.creatures.LearningSystem;
 import com.mojang.brigadier.CommandDispatcher;
 import net.minecraft.commands.CommandSourceStack;
@@ -12,7 +12,7 @@ import net.minecraft.commands.Commands;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.phys.AABB;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -26,44 +26,55 @@ public class CommandRegistry {
     public static void onRegisterCommands(RegisterCommandsEvent event) {
         NeuralCommand.register(event.getDispatcher());
 
+        com.economymod.zones.commands.ZoneCommand.register(event.getDispatcher());
+
         CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
 
+        // 1. Команда просмотра текущего эмоционального состояния жителей
         dispatcher.register(Commands.literal("emotion")
                 .executes(ctx -> {
                     if (ctx.getSource().getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
                         net.minecraft.world.level.Level level = player.level();
-                        AABB box = player.getBoundingBox().inflate(10);
-                        for (Entity e : level.getEntitiesOfClass(TestCreatureEntity.class, box, entity -> true)) {
-                            TestCreatureEntity creature = (TestCreatureEntity) e;
-                            LearningSystem ls = creature.getLearningSystem();
+                        AABB box = player.getBoundingBox().inflate(12);
+                        int count = 0;
+                        for (Villager villager : level.getEntitiesOfClass(Villager.class, box, entity -> true)) {
+                            VillagerBrainWrapper brain = VillagerBrainWrapper.getOrCreate(villager);
+                            LearningSystem ls = brain.getLearningSystem();
                             float fear = ls.getOverallFear(null);
-                            float curiosity = creature.getSensorValue("Curiosity");
-                            float aggression = creature.getCreatureBrain().getLobe(1).getRegister(6, 0, 0);
+                            float curiosity = brain.getSensorValue("Curiosity");
+                            float aggression = brain.getBrain().getLobe(1).getRegister(6, 0, 0); // Вектор желания драться
                             float boredom = 1f - ls.getNovelty();
                             player.sendSystemMessage(Component.literal(
-                                    String.format("%s: ❤️%.2f 🧠%.2f ⚔️%.2f 😴%.2f",
-                                            creature.getName().getString(), fear, curiosity, aggression, boredom)));
+                                    String.format("%s: ❤️Страх:%.2f 🧠Любопытство:%.2f ⚔️Агрессия:%.2f 💤Скука:%.2f",
+                                            villager.getName().getString(), fear, curiosity, aggression, boredom)));
+                            count++;
+                        }
+                        if (count == 0) {
+                            player.sendSystemMessage(Component.literal("§cРядом не найдено жителей для анализа эмоций."));
                         }
                     }
                     return 1;
                 })
         );
 
+        // 2. Команда анализа страхов и влияния биохимии на желания
         dispatcher.register(Commands.literal("fear")
                 .executes(ctx -> {
                     if (ctx.getSource().getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
                         net.minecraft.world.level.Level level = player.level();
-                        AABB box = player.getBoundingBox().inflate(10);
-                        for (Entity e : level.getEntitiesOfClass(TestCreatureEntity.class, box, entity -> true)) {
-                            TestCreatureEntity creature = (TestCreatureEntity) e;
-                            LearningSystem ls = creature.getLearningSystem();
+                        AABB box = player.getBoundingBox().inflate(12);
+                        int count = 0;
+                        for (Villager villager : level.getEntitiesOfClass(Villager.class, box, entity -> true)) {
+                            VillagerBrainWrapper brain = VillagerBrainWrapper.getOrCreate(villager);
+                            LearningSystem ls = brain.getLearningSystem();
                             String context = ls.getCurrentContext();
                             float overallFear = ls.getOverallFear(null);
-                            float desireExplore = creature.getCreatureBrain().getLobe(1).getRegister(3, 0, 0);
+                            float desireExplore = brain.getBrain().getLobe(1).getRegister(3, 0, 0); // Исследование
 
-                            float health = creature.getHealth() / creature.getMaxHealth();
-                            int hunger = (int)(creature.getSensorValue("Hunger") * 100);
-                            int fatigue = (int)(creature.getSensorValue("Fatigue") * 100);
+                            float health = villager.getHealth() / villager.getMaxHealth();
+                            float hunger = (1f - brain.getSensorValue("Hunger")) * 100;
+                            float fatigue = brain.getSensorValue("Fatigue") * 100;
+
                             LearningSystem.MemoryType primaryFear;
                             if (health < 0.6f) primaryFear = LearningSystem.MemoryType.DAMAGE;
                             else if (hunger > 70) primaryFear = LearningSystem.MemoryType.HUNGER;
@@ -72,112 +83,108 @@ public class CommandRegistry {
 
                             float modifiedExplore = ls.modifyDesire("Explore", desireExplore, null, primaryFear);
                             player.sendSystemMessage(Component.literal(
-                                    String.format("%s: context=%s, overallFear=%.2f, primaryFear=%s, baseExplore=%.2f, modifiedExplore=%.2f",
-                                            creature.getName().getString(), context, overallFear, primaryFear.name(), desireExplore, modifiedExplore)));
+                                    String.format("%s: Контекст=%s, ОбщийСтрах=%.2f, ПервичныйСтрах=%s, БазИсслед=%.2f, МодИсслед=%.2f",
+                                            villager.getName().getString(), context, overallFear, primaryFear.name(), desireExplore, modifiedExplore)));
+                            count++;
+                        }
+                        if (count == 0) {
+                            player.sendSystemMessage(Component.literal("§cРядом не найдено жителей для анализа страхов."));
                         }
                     }
                     return 1;
                 })
         );
 
+        // 3. Команда чтения ассоциативной долговременной памяти жителей
         dispatcher.register(Commands.literal("memory")
                 .executes(ctx -> {
                     if (ctx.getSource().getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
                         net.minecraft.world.level.Level level = player.level();
-                        AABB box = player.getBoundingBox().inflate(10);
-                        for (Entity e : level.getEntitiesOfClass(TestCreatureEntity.class, box, entity -> true)) {
-                            TestCreatureEntity creature = (TestCreatureEntity) e;
-                            LearningSystem ls = creature.getLearningSystem();
-                            player.sendSystemMessage(Component.literal("§6=== Memory of " + creature.getName().getString() + " ==="));
+                        AABB box = player.getBoundingBox().inflate(12);
+                        int count = 0;
+                        for (Villager villager : level.getEntitiesOfClass(Villager.class, box, entity -> true)) {
+                            VillagerBrainWrapper brain = VillagerBrainWrapper.getOrCreate(villager);
+                            LearningSystem ls = brain.getLearningSystem();
+                            player.sendSystemMessage(Component.literal("§6=== Ассоциативная память " + villager.getName().getString() + " ==="));
 
                             for (LearningSystem.MemoryType type : LearningSystem.MemoryType.values()) {
                                 var mem = ls.getAllMemories().get(type);
                                 if (!mem.isEmpty()) {
                                     player.sendSystemMessage(Component.literal("§e" + type.name() + ":"));
-                                    int count = 0;
+                                    int memCount = 0;
                                     for (var entry : mem.entrySet()) {
-                                        if (count++ >= 5) {
-                                            player.sendSystemMessage(Component.literal("  ... and " + (mem.size() - 5) + " more"));
+                                        if (memCount++ >= 5) {
+                                            player.sendSystemMessage(Component.literal("  ... и еще " + (mem.size() - 5) + " записей"));
                                             break;
                                         }
-                                        player.sendSystemMessage(Component.literal("  " + entry.getKey() + " → " + String.format("%.2f", entry.getValue())));
+                                        player.sendSystemMessage(Component.literal("  " + entry.getKey() + " → уровень: " + String.format("%.2f", entry.getValue())));
                                     }
                                 }
                             }
                             var itemMem = ls.getAllItemFears();
                             if (!itemMem.isEmpty()) {
-                                player.sendSystemMessage(Component.literal("§eItem fears:"));
-                                int count = 0;
+                                player.sendSystemMessage(Component.literal("§eСтрах перед вещами:"));
+                                int itemMemCount = 0;
                                 for (var entry : itemMem.entrySet()) {
-                                    if (count++ >= 5) {
-                                        player.sendSystemMessage(Component.literal("  ... and " + (itemMem.size() - 5) + " more"));
+                                    if (itemMemCount++ >= 5) {
+                                        player.sendSystemMessage(Component.literal("  ... и еще " + (itemMem.size() - 5) + " предметов"));
                                         break;
                                     }
                                     String itemName = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(entry.getKey()).getPath();
-                                    player.sendSystemMessage(Component.literal("  " + itemName + " → " + String.format("%.2f", entry.getValue())));
+                                    player.sendSystemMessage(Component.literal("  " + itemName + " → испуг: " + String.format("%.2f", entry.getValue())));
                                 }
                             }
                             var positiveMem = ls.getAllPositive();
                             if (!positiveMem.isEmpty()) {
-                                player.sendSystemMessage(Component.literal("§aPositive memory:"));
-                                int count = 0;
+                                player.sendSystemMessage(Component.literal("§aПоложительный опыт (Приятные места):"));
+                                int posCount = 0;
                                 for (var entry : positiveMem.entrySet()) {
-                                    if (count++ >= 5) {
-                                        player.sendSystemMessage(Component.literal("  ... and " + (positiveMem.size() - 5) + " more"));
+                                    if (posCount++ >= 5) {
+                                        player.sendSystemMessage(Component.literal("  ... и еще " + (positiveMem.size() - 5) + " зон"));
                                         break;
                                     }
-                                    player.sendSystemMessage(Component.literal("  " + entry.getKey() + " → +" + String.format("%.2f", entry.getValue())));
+                                    player.sendSystemMessage(Component.literal("  " + entry.getKey() + " → бонус: +" + String.format("%.2f", entry.getValue())));
                                 }
                             }
+                            count++;
+                        }
+                        if (count == 0) {
+                            player.sendSystemMessage(Component.literal("§cРядом не найдено жителей для чтения памяти."));
                         }
                     }
                     return 1;
                 })
         );
 
+        // 4. Команда отображения физиологических параметров ИИ
         dispatcher.register(Commands.literal("stats")
                 .executes(ctx -> {
                     if (ctx.getSource().getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
                         net.minecraft.world.level.Level level = player.level();
-                        AABB box = player.getBoundingBox().inflate(10);
-                        for (Entity e : level.getEntitiesOfClass(TestCreatureEntity.class, box, entity -> true)) {
-                            TestCreatureEntity creature = (TestCreatureEntity) e;
-                            float health = creature.getHealth() / creature.getMaxHealth();
-                            float hunger = creature.getSensorValue("Hunger");
-                            float fatigue = creature.getSensorValue("Fatigue");
-                            float freedom = creature.getLearningSystem().getFreedom();
-                            float novelty = creature.getLearningSystem().getNovelty();
-                            float distress = creature.getLearningSystem().calculateDistress(health, hunger, fatigue);
+                        AABB box = player.getBoundingBox().inflate(12);
+                        int count = 0;
+                        for (Villager villager : level.getEntitiesOfClass(Villager.class, box, entity -> true)) {
+                            VillagerBrainWrapper brain = VillagerBrainWrapper.getOrCreate(villager);
+                            float health = villager.getHealth() / villager.getMaxHealth();
+                            float hunger = brain.getSensorValue("Hunger");
+                            float fatigue = brain.getSensorValue("Fatigue");
+                            float freedom = brain.getLearningSystem().getFreedom();
+                            float novelty = brain.getLearningSystem().getNovelty();
+                            float distress = brain.getLearningSystem().calculateDistress(health, hunger, fatigue);
                             player.sendSystemMessage(Component.literal(
-                                    String.format("%s: Health:%.2f Hunger:%.2f Fatigue:%.2f Freedom:%.2f Novelty:%.2f Distress:%.2f",
-                                            creature.getName().getString(), health, hunger, fatigue, freedom, novelty, distress)));
+                                    String.format("%s: Здоровье:%.2f Голод:%.2f Усталость:%.2f Свобода:%.2f Новизна:%.2f Стресс:%.2f",
+                                            villager.getName().getString(), health, hunger, fatigue, freedom, novelty, distress)));
+                            count++;
+                        }
+                        if (count == 0) {
+                            player.sendSystemMessage(Component.literal("§cРядом не найдено жителей для отображения параметров."));
                         }
                     }
                     return 1;
                 })
         );
 
-        dispatcher.register(Commands.literal("emotion")
-                .executes(ctx -> {
-                    if (ctx.getSource().getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
-                        net.minecraft.world.level.Level level = player.level();
-                        AABB box = player.getBoundingBox().inflate(10);
-                        for (Entity e : level.getEntitiesOfClass(TestCreatureEntity.class, box, entity -> true)) {
-                            TestCreatureEntity creature = (TestCreatureEntity) e;
-                            LearningSystem ls = creature.getLearningSystem();
-                            float fear = ls.getOverallFear(null);
-                            float curiosity = creature.getSensorValue("Curiosity");
-                            float aggression = creature.getCreatureBrain().getLobe(1).getRegister(6, 0, 0);
-                            float boredom = 1f - ls.getNovelty();
-                            player.sendSystemMessage(Component.literal(
-                                    String.format("%s: Fear=%.2f Curiosity=%.2f Aggression=%.2f Boredom=%.2f",
-                                            creature.getName().getString(), fear, curiosity, aggression, boredom)));
-                        }
-                    }
-                    return 1;
-                })
-        );
-
+        // 5. Глобальные команды управления экономикой мира
         dispatcher.register(Commands.literal("economy")
                 .requires(source -> source.hasPermission(2))
                 .then(Commands.literal("info")
@@ -263,7 +270,7 @@ public class CommandRegistry {
                             for (Item item : info.getActiveItems()) {
                                 final Item finalItem = item;
                                 double buyPrice = PriceCalculator.getBuyPrice(item.getDefaultInstance(), info);
-                                context.getSource().sendSuccess(() -> Component.literal(String.format("%s: §a%.2f⛀", finalItem.getDescription().getString(), buyPrice)), false);
+                                context.getSource().sendSuccess(() -> Component.literal(String.format("%s: §a%.2fв›Ђ", finalItem.getDescription().getString(), buyPrice)), false);
                             }
                             return 1;
                         })

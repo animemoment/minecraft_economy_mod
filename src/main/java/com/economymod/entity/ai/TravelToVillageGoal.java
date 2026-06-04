@@ -29,7 +29,7 @@ public class TravelToVillageGoal extends Goal {
 
         // Торговец решает уйти, если у него много денег (закупился/продался)
         // ИЛИ просто с шансом 1 к 20 (чтобы не стоял вечно)
-        return trader.budget > 2000 || trader.getRandom().nextInt(20) == 0;
+        return trader.getBalance() > 2000 || trader.getRandom().nextInt(20) == 0;
     }
 
     @Override

@@ -21,6 +21,8 @@ public class PlayerActor implements IEconomicActor {
         return null;
     }
 
+    @Override public net.minecraft.world.entity.LivingEntity getEntity() { return player; }
+
     @Override
     public double getBalance() {
         var eco = player.getData(ModAttachments.PLAYER_ECONOMY.get());

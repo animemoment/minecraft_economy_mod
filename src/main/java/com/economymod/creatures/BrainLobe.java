@@ -17,6 +17,10 @@ public class BrainLobe {
     private float accumulator = 0f;
     private int pc = 0;
 
+    // Переменные для динамического компилятора байткода
+    private CompiledRule compiledRule = null;
+    private boolean compilationAttempted = false;
+
     public BrainLobe(int width, int height, int registersPerNeuron, SVRule updateRule) {
         this.width = width;
         this.height = height;
@@ -64,15 +68,31 @@ public class BrainLobe {
     public float getActivation(int x, int y) { return neurons[x][y][0]; }
 
     public void tick(SensorProvider sensorProvider) {
+        // Ленивая динамическая компиляция при первом тике
+        if (!compilationAttempted) {
+            compilationAttempted = true;
+            try {
+                this.compiledRule = RuleCompiler.compile(this.updateRule);
+                com.economymod.EconomyMod.LOGGER.info("ЭКОНОМИКА ИИ: Успешно скомпилировали правило SVRule для BrainLobe в байткод на лету!");
+            } catch (Exception e) {
+                com.economymod.EconomyMod.LOGGER.error("ЭКОНОМИКА ИИ: Не удалось скомпилировать правило ИИ. Откатываемся на медленный интерпретатор.", e);
+            }
+        }
+
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
-                // Временно отключаем затухание и порог
-                executeRule(x, y, sensorProvider);
+                if (compiledRule != null) {
+                    // НАЗЕМНАЯ СКОРОСТЬ: Вызов скомпилированного байткода напрямую на процессоре!
+                    compiledRule.execute(neurons, x, y, sensorProvider);
+                } else {
+                    // ОТКАТ: Резервная медленная интерпретация
+                    executeRuleInterpreter(x, y, sensorProvider);
+                }
             }
         }
     }
 
-    private void executeRule(int x, int y, SensorProvider sensorProvider) {
+    private void executeRuleInterpreter(int x, int y, SensorProvider sensorProvider) {
         accumulator = 0f;
         pc = 0;
         boolean skipNext = false;

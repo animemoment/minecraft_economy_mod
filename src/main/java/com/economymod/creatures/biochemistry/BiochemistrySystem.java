@@ -1,6 +1,6 @@
 package com.economymod.creatures.biochemistry;
 
-import com.economymod.entity.TestCreatureEntity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 
@@ -23,7 +23,7 @@ public class BiochemistrySystem {
     public void addReceptor(Receptor r) { receptors.add(r); }
     public void addNeuroEmitter(NeuroEmitter ne) { neuroEmitters.add(ne); }
 
-    public void tick(TestCreatureEntity entity) {
+    public void tick(LivingEntity entity) {
         for (Chemical c : chemicals) c.decay();
         for (Emitter e : emitters) e.tick();
         for (NeuroEmitter ne : neuroEmitters) ne.tick();
